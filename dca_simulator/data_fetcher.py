@@ -1,6 +1,6 @@
 import yfinance as yf
 import pandas as pd
-
+###
 def fetch_historical_data(ticker: str, start_date: str) -> pd.DataFrame:
     """
     Fetches historical stock data for a given ticker and date range using yfinance.
