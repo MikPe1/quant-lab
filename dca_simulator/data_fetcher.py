@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 ###
-def fetch_historical_data(ticker: str, start_date: str) -> pd.DataFrame:
+def fetch_historical_data(ticker: str, start_date: str, end_date: str = None) -> pd.DataFrame:
     """
     Fetches historical stock data for a given ticker and date range using yfinance.
 
@@ -15,7 +15,7 @@ def fetch_historical_data(ticker: str, start_date: str) -> pd.DataFrame:
     """
     try:
         # yfinance fetches data up to the current date if end date is not specified
-        data = yf.download(ticker, start=start_date, auto_adjust=False)  # Explicitly set to avoid future warning
+        data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False)  # Explicitly set to avoid future warning
         if data.empty:
             print(f"No data found for ticker: {ticker} from {start_date}")
             return pd.DataFrame()
