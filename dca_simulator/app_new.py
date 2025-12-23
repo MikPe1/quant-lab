@@ -90,7 +90,20 @@ def main():
             
     elif page == "Financial Analysis":
         if render_financial_analysis_page:
-            render_financial_analysis_page()
+            # Import ARIMA-GARCH page
+            from pages.arima_garch_page import render_arima_garch_page
+            
+            # Add submenu for Financial Analysis
+            analysis_type = st.sidebar.radio(
+                "Analysis Type",
+                ["Standard Analysis", "ARIMA-GARCH Monte Carlo"],
+                index=0
+            )
+            
+            if analysis_type == "Standard Analysis":
+                render_financial_analysis_page()
+            else:  # ARIMA-GARCH Monte Carlo
+                render_arima_garch_page()
         else:
             st.warning("Financial Analysis page coming soon...")
             st.info("This page is being refactored. Please use the original app.py temporarily.")
