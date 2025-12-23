@@ -16,15 +16,42 @@ from data_fetcher import fetch_historical_data
 def render_portfolio_backtest_page():
     """Main function to render Portfolio Backtest page"""
     
+    st.header("Portfolio Backtest Tool")
+    
+    # Key Assumptions
+    with st.expander("Key Assumptions & Methodology", expanded=False):
+        st.markdown("""
+        **Testing Assumptions:**
+        - No transaction costs or slippage included
+        - Rebalancing is cost-free and instantaneous
+        - All positions are liquid (can buy/sell any amount)
+        - Fractional shares allowed
+        - No bid-ask spread
+        
+        **Performance Metrics:**
+        - Returns: Arithmetic and annualized returns
+        - Sharpe Ratio: Risk-adjusted return (assumes 4% risk-free rate)
+        - Maximum Drawdown: Largest peak-to-trough decline
+        - Win Rate: Percentage of positive return days
+        
+        **Benchmark Comparison:**
+        - Default benchmark: S&P 500 (^GSPC)
+        - Benchmark uses same time period as portfolio
+        - Performance metrics calculated identically for fair comparison
+        
+        **Important Notes:**
+        - Past performance does not guarantee future results
+        - Backtest results are theoretical and may not reflect real trading
+        - Consider transaction costs in real implementation
+        """)
+    
     st.markdown("""
-    ## 📈 Portfolio Backtest Tool
-    
     Test any portfolio with custom weights on a selected time period.
-    Compare performance against S&P 500 benchmark.
+    Compare performance against a benchmark index.
     
-    **How to use:**
-    1. Copy weights from Portfolio Models page (or enter manually)
-    2. Select backtest period
+    **Workflow:**
+    1. Copy weights from Portfolio Models page or enter manually
+    2. Select backtest period and benchmark
     3. View performance metrics and charts
     """)
     
@@ -34,14 +61,14 @@ def render_portfolio_backtest_page():
     with col1:
         st.markdown("### Portfolio Weights")
         weights_input = st.text_area(
-            "Paste portfolio weights (ticker,weight format):",
+            "Paste weights (ticker,weight format):",
             height=200,
             placeholder="ticker,weight\nAAPL,0.15\nMSFT,0.20\nGOOGL,0.18\n...",
-            help="Format: ticker,weight (one per line). You can copy from Portfolio Models page."
+            help="Format: ticker,weight (one per line)"
         )
         
     with col2:
-        st.markdown("### Backtest Period")
+        st.markdown("### Backtest Settings")
         start_date = st.date_input(
             "Start Date",
             value=pd.to_datetime("2020-01-01")
@@ -52,19 +79,20 @@ def render_portfolio_backtest_page():
         )
         
         benchmark_ticker = st.text_input(
-            "Benchmark Ticker",
+            "Benchmark",
             value="^GSPC",
-            help="Default: S&P 500"
+            help="Ticker symbol for benchmark comparison"
         )
         
         initial_capital = st.number_input(
             "Initial Capital ($)",
             value=100000,
             min_value=1000,
-            step=10000
+            step=10000,
+            help="Starting portfolio value"
         )
     
-    if st.button("🚀 Run Backtest", type="primary"):
+    if st.button("Run Backtest", type="primary"):
         if not weights_input.strip():
             st.error("Please enter portfolio weights!")
             return
@@ -80,14 +108,14 @@ def render_portfolio_backtest_page():
             # Validate weights sum to ~1
             total_weight = sum(weights_dict.values())
             if not (0.95 <= total_weight <= 1.05):
-                st.warning(f"⚠️ Weights sum to {total_weight:.2%}. Normalizing to 100%...")
+                st.warning(f"Weights sum to {total_weight:.2%}. Normalizing to 100%...")
                 # Normalize
                 weights_dict = {k: v/total_weight for k, v in weights_dict.items()}
             
             # Display parsed weights
-            st.success(f"✅ Parsed {len(weights_dict)} positions")
+            st.success(f"Parsed {len(weights_dict)} positions")
             
-            with st.expander("📋 Parsed Weights"):
+            with st.expander("Parsed Weights"):
                 weights_df = pd.DataFrame({
                     'Ticker': list(weights_dict.keys()),
                     'Weight': list(weights_dict.values()),
@@ -142,7 +170,7 @@ def _run_backtest(weights_dict, start_date, end_date, benchmark_ticker, initial_
     """Run portfolio backtest and display results"""
     
     st.markdown("---")
-    st.subheader("📊 Backtest Results")
+    st.subheader("Backtest Results")
     
     with st.spinner("Fetching data and running backtest..."):
         # Fetch portfolio data
@@ -170,7 +198,7 @@ def _run_backtest(weights_dict, start_date, end_date, benchmark_ticker, initial_
         status_text.empty()
         
         if failed_tickers:
-            st.warning(f"⚠️ Could not fetch data for: {', '.join(failed_tickers)}")
+            st.warning(f"Could not fetch data for: {', '.join(failed_tickers)}")
             # Remove failed tickers and renormalize
             for ticker in failed_tickers:
                 del weights_dict[ticker]
@@ -187,7 +215,7 @@ def _run_backtest(weights_dict, start_date, end_date, benchmark_ticker, initial_
         benchmark_data = fetch_historical_data(benchmark_ticker, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
         
         if benchmark_data.empty:
-            st.warning("⚠️ Could not fetch benchmark data")
+            st.warning("Could not fetch benchmark data")
             benchmark_data = None
         
         # Calculate portfolio performance
@@ -266,7 +294,7 @@ def _calculate_and_display_performance(portfolio_data, weights_dict, benchmark_d
             }
     
     # Display metrics
-    st.markdown("### 📈 Performance Metrics")
+    st.markdown("### Performance Metrics")
     
     col1, col2, col3 = st.columns(3)
     
@@ -341,7 +369,7 @@ def _calculate_and_display_performance(portfolio_data, weights_dict, benchmark_d
 def _plot_backtest_results(portfolio_value, portfolio_cumulative, drawdown, benchmark_metrics, benchmark_ticker):
     """Plot backtest results"""
     
-    st.markdown("### 📊 Performance Charts")
+    st.markdown("### Performance Charts")
     
     # Create subplots
     fig = make_subplots(
@@ -470,7 +498,7 @@ def _plot_backtest_results(portfolio_value, portfolio_cumulative, drawdown, benc
 def _create_backtest_download(portfolio_returns, portfolio_value, weights_dict, start_date, end_date):
     """Create downloadable CSV with backtest results"""
     
-    st.markdown("### 📥 Download Results")
+    st.markdown("### Download Results")
     
     # Create results DataFrame
     results_df = pd.DataFrame({
@@ -487,7 +515,7 @@ def _create_backtest_download(portfolio_returns, portfolio_value, weights_dict, 
     csv_with_header = f"# Portfolio Backtest Results\n# Period: {start_date} to {end_date}\n# Weights: {weights_str}\n{csv_string}"
     
     st.download_button(
-        label="📊 Download Backtest Results",
+        label="Download Backtest Results",
         data=csv_with_header,
         file_name=f"backtest_results_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
         mime="text/csv"

@@ -22,21 +22,61 @@ from portfolio.monte_carlo import monte_carlo_forecast_streamlit
 
 def render_financial_analysis_page():
     """Main function to render the Financial Analysis page"""
+    
+    st.header("Financial Analysis")
+    
+    # Key Assumptions
+    with st.expander("Key Assumptions & Methodology", expanded=False):
+        st.markdown("""
+        **Statistical Assumptions:**
+        - Returns assumed to be time-series data (may exhibit autocorrelation)
+        - Price distributions tested for normality vs fat tails
+        - GARCH model captures volatility clustering
+        - Monte Carlo simulations use fitted distribution parameters
+        
+        **Technical Analysis:**
+        - Bollinger Bands: 20-day SMA with 2 standard deviations
+        - MACD: 12/26/9 exponential moving averages
+        - RSI: 14-day period (oversold <30, overbought >70)
+        - Indicators are lagging (based on historical data)
+        
+        **Forecasting Methods:**
+        1. Prophet: Additive model with trend and seasonality decomposition
+        2. ARIMA: Auto-regressive integrated moving average (auto-fit)
+        3. Holt-Winters: Exponential smoothing with trend and seasonality
+        4. Monte Carlo: Stochastic simulation using fitted distribution
+        
+        **Important Notes:**
+        - Past performance does not guarantee future results
+        - All forecasts are probabilistic, not deterministic
+        - Use multiple methods to assess forecast uncertainty
+        - No transaction costs or slippage included
+        """)
+    
+    st.markdown("""
+    Comprehensive single-asset analysis including statistical tests, technical indicators, 
+    and multiple forecasting methods.
+    """)
 
     # User inputs
     col1, col2 = st.columns(2)
     with col1:
-        ticker = st.text_input("Stock Ticker", "AAPL").upper()
+        ticker = st.text_input("Ticker Symbol", "AAPL", help="Stock ticker symbol").upper()
         start_date = st.date_input("Start Date", value=pd.to_datetime("2018-01-01"))
         end_date = st.date_input("End Date", value=pd.to_datetime("today"))
-        forecast_days = st.number_input("Forecast Days", value=30, min_value=1, max_value=365)
+        forecast_days = st.number_input("Forecast Horizon (days)", value=30, min_value=1, max_value=365,
+                                       help="Number of days to forecast")
     with col2:
-        mc_simulations = st.number_input("Monte Carlo Simulations", value=1000, min_value=100, max_value=10000)
-        mc_period = st.number_input("Monte Carlo Period (days)", value=30, min_value=1, max_value=365)
-        mc_distribution = st.selectbox("Monte Carlo Distribution", ["normal", "t-student"], index=0)
-        var_confidence = st.slider("VaR Confidence Level", min_value=0.90, max_value=0.99, value=0.95, step=0.01)
+        mc_simulations = st.number_input("Monte Carlo Simulations", value=1000, min_value=100, max_value=10000,
+                                        help="Number of simulation paths")
+        mc_period = st.number_input("Forecast Period (days)", value=30, min_value=1, max_value=365,
+                                   help="Monte Carlo forecast horizon")
+        mc_distribution = st.selectbox("Distribution", ["normal", "t-student"], index=0,
+                                      help="Return distribution assumption")
+        var_confidence = st.slider("VaR Confidence Level", min_value=0.90, max_value=0.99, value=0.95, step=0.01,
+                                  help="Confidence level for Value at Risk calculation")
 
-    if st.button("Run Analysis"):
+    if st.button("Run Analysis", type="primary"):
         # Fetch data
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
@@ -61,7 +101,7 @@ def render_financial_analysis_page():
 
 def _render_returns_analysis(ticker, data, returns):
     """Display returns time series and descriptive statistics"""
-    st.subheader("📈 Daily Returns Time Series")
+    st.subheader("Daily Returns Time Series")
     fig_returns = px.line(
         returns,
         title=f"{ticker} Daily Returns",
@@ -72,7 +112,7 @@ def _render_returns_analysis(ticker, data, returns):
     st.plotly_chart(fig_returns)
     
     # Descriptive statistics
-    st.subheader("📊 Descriptive Statistics")
+    st.subheader("Descriptive Statistics")
     stats_data = {
         "Statistic": ["Mean Daily Return", "Median Daily Return", "Daily Volatility", "Q1 Daily Return", "Q3 Daily Return"],
         "Value": [f"{returns.mean():.2%}", f"{returns.median():.2%}", f"{returns.std():.2%}", 
@@ -83,7 +123,7 @@ def _render_returns_analysis(ticker, data, returns):
 
 def _render_price_distribution(ticker, data):
     """Analyze and display historical price distribution"""
-    st.subheader("📈 Historical Price Distribution")
+    st.subheader("Historical Price Distribution")
 
     # Calculate price percentiles
     current_price = data.iloc[-1]
@@ -158,7 +198,7 @@ def _render_price_distribution(ticker, data):
 
 def _render_returns_distribution(ticker, returns):
     """Display returns distribution analysis with theoretical fits"""
-    st.subheader("📊 Returns Distribution Analysis")
+    st.subheader("Returns Distribution Analysis")
 
     # Fit normal distribution
     mu, sigma = stats.norm.fit(returns)
@@ -247,7 +287,7 @@ def _render_returns_distribution(ticker, returns):
 
 def _render_unit_root_tests(data, returns):
     """Perform and display unit root tests for stationarity analysis"""
-    st.subheader("🔍 Unit Root Tests (Stationarity Analysis)")
+    st.subheader("Unit Root Tests (Stationarity Analysis)")
 
     # ADF on prices
     adf_price_c = adfuller(data, regression='c')
@@ -293,7 +333,7 @@ def _render_unit_root_tests(data, returns):
 
 def _render_var_analysis(returns, var_confidence):
     """Calculate and display Value at Risk using GARCH"""
-    st.subheader("⚠️ Value at Risk (VaR) using GARCH")
+    st.subheader("Value at Risk (VaR) using GARCH")
     try:
         model = arch_model(returns, vol='Garch', p=1, q=1)
         res = model.fit(disp='off')
@@ -320,7 +360,7 @@ def _render_var_analysis(returns, var_confidence):
 
 def _render_monte_carlo(ticker, returns, mc_simulations, mc_period, mc_distribution):
     """Run and display Monte Carlo simulation"""
-    st.subheader("🎲 Monte Carlo Forecast")
+    st.subheader("Monte Carlo Forecast")
     mc_results = monte_carlo_forecast_streamlit(
         returns.to_frame(),  # Convert to DataFrame for compatibility
         np.array([1.0]),     # Single stock, 100% weight
@@ -341,7 +381,7 @@ def _render_monte_carlo(ticker, returns, mc_simulations, mc_period, mc_distribut
 
     # Display distribution info if available
     if 'distribution_params' in mc_results and mc_results['distribution_params']:
-        with st.expander("📊 Distribution Parameters"):
+        with st.expander("Distribution Parameters"):
             params = mc_results['distribution_params']
             if 'df' in params:
                 st.write(f"**T-Student Distribution:**")
@@ -457,7 +497,7 @@ def _render_monte_carlo(ticker, returns, mc_simulations, mc_period, mc_distribut
 
 def _render_technical_analysis(ticker, data):
     """Display technical indicators: Bollinger Bands, MACD, RSI"""
-    st.subheader("📈 Technical Analysis: Bollinger Bands, MACD & RSI")
+    st.subheader("Technical Analysis: Bollinger Bands, MACD & RSI")
 
     # Calculate Bollinger Bands (20-day)
     bb_window = 20
@@ -554,7 +594,7 @@ def _render_technical_analysis(ticker, data):
 
 def _render_technical_summary(data, sma_bb, upper_band, lower_band, macd, signal, histogram, rsi):
     """Display summary of technical indicators"""
-    st.subheader("📊 Technical Analysis Summary")
+    st.subheader("Technical Analysis Summary")
 
     # Bollinger Bands Analysis
     current_price = data.iloc[-1]
@@ -585,7 +625,7 @@ def _render_technical_summary(data, sma_bb, upper_band, lower_band, macd, signal
             st.success("🟢 NEAR LOWER BAND - Oversold")
             bb_signal = "Oversold"
         else:
-            st.info("✅ WITHIN BANDS - Normal")
+            st.info("WITHIN BANDS - Normal")
             bb_signal = "Normal"
 
     with col2:
@@ -615,11 +655,11 @@ def _render_technical_summary(data, sma_bb, upper_band, lower_band, macd, signal
             st.success("🟢 OVERSOLD (<30)")
             rsi_signal = "Oversold"
         else:
-            st.info("✅ NEUTRAL (30-70)")
+            st.info("NEUTRAL (30-70)")
             rsi_signal = "Neutral"
 
     # Overall Trend Analysis
-    st.subheader("🎯 Overall Trend Analysis")
+    st.subheader("Overall Trend Analysis")
 
     bullish_signals = sum([bb_signal == "Oversold", macd_signal == "Bullish", rsi_signal == "Oversold"])
     bearish_signals = sum([bb_signal == "Overbought", macd_signal == "Bearish", rsi_signal == "Overbought"])
@@ -628,7 +668,7 @@ def _render_technical_summary(data, sma_bb, upper_band, lower_band, macd, signal
         st.success("🚀 **BULLISH TREND** - Multiple indicators suggest upward momentum")
         trend = "Bullish"
     elif bearish_signals >= 2:
-        st.error("📉 **BEARISH TREND** - Multiple indicators suggest downward pressure")
+        st.error("**BEARISH TREND** - Multiple indicators suggest downward pressure")
         trend = "Bearish"
     else:
         st.info("⚖️ **NEUTRAL/MIXED** - Indicators are not aligned")
@@ -652,7 +692,7 @@ def _render_technical_summary(data, sma_bb, upper_band, lower_band, macd, signal
 def _render_forecasting(ticker, data, forecast_days):
     """Display Prophet, ARIMA, and Holt-Winters forecasts"""
     # Prophet Model
-    st.subheader("🔮 Prophet Forecast")
+    st.subheader("Prophet Forecast")
     df_prophet = pd.DataFrame({'ds': data.index, 'y': data.values})
     model_prophet = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False)
     model_prophet.fit(df_prophet)
@@ -713,7 +753,7 @@ def _render_forecasting(ticker, data, forecast_days):
     _render_prophet_components(forecast_prophet)
 
     # ARIMA Model
-    st.subheader("📊 ARIMA Forecast")
+    st.subheader("ARIMA Forecast")
     try:
         model_arima = ARIMA(data, order=(1, 1, 1))
         res_arima = model_arima.fit()
@@ -748,7 +788,7 @@ def _render_forecasting(ticker, data, forecast_days):
         st.error(f"ARIMA fitting failed: {e}")
 
     # Holt-Winters Model
-    st.subheader("🌊 Holt-Winters Forecast")
+    st.subheader("Holt-Winters Forecast")
     try:
         model_hw = ExponentialSmoothing(data, seasonal='add', seasonal_periods=252)
         res_hw = model_hw.fit()
@@ -785,7 +825,7 @@ def _render_forecasting(ticker, data, forecast_days):
 
 def _render_prophet_components(forecast_prophet):
     """Display Prophet time series decomposition"""
-    st.subheader("📈 Prophet Components (Trend & Seasonality)")
+    st.subheader("Prophet Components (Trend & Seasonality)")
 
     # Extract components data
     components = forecast_prophet[['ds', 'trend', 'weekly', 'yearly']].copy()

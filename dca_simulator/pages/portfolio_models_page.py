@@ -110,7 +110,7 @@ def _render_basic_portfolio_section():
                 st.subheader("CAPM Results")
                 
                 st.info("""
-                📊 **Understanding the Sharpe Ratios:**
+                **Understanding the Sharpe Ratios:**
                 - **CAPM Sharpe** = Theoretical (ex-ante) using CAPM expected return
                 - **Actual Sharpe** = Historical (ex-post) using realized return
                 - If they're similar, CAPM predicts well for that asset
@@ -232,7 +232,7 @@ def _render_basic_portfolio_section():
                         max_sharpe_weights_array = weights_record[max_sharpe_idx]
                         max_sharpe_weights = pd.Series(max_sharpe_weights_array, index=tickers)
                         
-                        st.subheader("🎯 Max Sharpe Portfolio Weights")
+                        st.subheader("Max Sharpe Portfolio Weights")
                         
                         # Display table
                         weights_df = pd.DataFrame({
@@ -246,7 +246,7 @@ def _render_basic_portfolio_section():
                         )
                         
                         # CSV Download with Copy-Paste Preview
-                        st.markdown("### 📥 Download Weights")
+                        st.markdown("### Download Weights")
                         
                         col1, col2 = st.columns([1, 1])
                         
@@ -262,11 +262,11 @@ def _render_basic_portfolio_section():
                             filename = f"max_sharpe_weights_{datetime.datetime.now().strftime('%Y%m%d')}.csv"
                             
                             st.download_button(
-                                label="📊 Download Weights (Simple)",
+                                label="Download Weights (CSV)",
                                 data=csv_string,
                                 file_name=filename,
                                 mime="text/csv",
-                                help="Simple format: ticker,weight - Ready for copy-paste"
+                                help="Simple format: ticker,weight"
                             )
                         
                         with col2:
@@ -277,7 +277,7 @@ def _render_basic_portfolio_section():
                             )
                         
                         # Copy-Paste Preview
-                        with st.expander("📋 Copy-Paste Format Preview", expanded=False):
+                        with st.expander("Copy-Paste Format Preview", expanded=False):
                             st.caption("Copy this format for Portfolio Backtest page")
                             st.code(csv_string, language="csv")
                 else:
@@ -286,45 +286,71 @@ def _render_basic_portfolio_section():
 
 def _render_extended_analysis_section():
     """Render extended advanced portfolio analysis"""
-    st.header("🚀 Extended Advanced Portfolio Analysis")
+    st.header("Advanced Portfolio Analysis")
+    
+    # Key Assumptions
+    with st.expander("Key Assumptions & Methodology", expanded=False):
+        st.markdown("""
+        **Statistical Assumptions:**
+        - Returns are assumed to follow a stationary process
+        - Covariance matrix is estimated from historical data (Ledoit-Wolf shrinkage)
+        - Risk-free rate: 4% annually (adjustable in settings)
+        
+        **Portfolio Construction:**
+        - No transaction costs or taxes included
+        - Positions can be fractional (no lot size constraints)
+        - No short selling (all weights >= 0)
+        - Full investment constraint (weights sum to 1)
+        
+        **Out-of-Sample Testing:**
+        - Training data used for optimization
+        - Test data used for performance validation
+        - No look-ahead bias (strict temporal split)
+        
+        **Methods Implemented:**
+        1. HRP: Hierarchical Risk Parity (López de Prado 2016)
+        2. Equal Weight: Naive 1/N allocation
+        3. Inverse Volatility: Weight inversely proportional to volatility
+        4. Mean-Variance: Markowitz optimization (max Sharpe)
+        5. Minimum Variance: Minimize portfolio variance
+        6. Risk Parity: Equal risk contribution from each asset
+        """)
+    
     st.markdown("""
-    **Comprehensive analysis including:**
-    - Multiple portfolio construction methods (HRP, Risk Parity, Mean-Variance, etc.)
-    - Out-of-sample testing to avoid overfitting
-    - Stress testing with VaR and CVaR
-    - Monte Carlo forecasting
-    - Hierarchical Risk Parity implementation
+    Compare multiple portfolio construction methods with rigorous out-of-sample testing.
+    Includes stress testing, Monte Carlo forecasting, and hierarchical clustering.
     """)
     
-    # Separate ticker input for extended analysis
+    # Portfolio input
     extended_tickers_input = st.text_area(
-        "Tickers for Extended Analysis (separate with commas)", 
+        "Portfolio Tickers (comma-separated)", 
         "AAPL, MSFT, GOOGL, AMZN, TSLA, NVDA, JPM, JNJ, WMT, PG",
+        help="Enter 3-15 tickers for analysis",
         key="extended_tickers"
     )
     extended_tickers = [t.strip().upper() for t in extended_tickers_input.split(',') if t.strip()]
     
-    # Date inputs for extended analysis
+    # Date range
     col1, col2 = st.columns(2)
     with col1:
         extended_start_date = st.date_input(
-            "Extended Analysis Start Date", 
+            "Start Date", 
             value=pd.to_datetime("2020-01-01"),
             key="extended_start"
         )
     with col2:
         extended_end_date = st.date_input(
-            "Extended Analysis End Date", 
+            "End Date", 
             value=pd.to_datetime("today"),
             key="extended_end"
         )
     
-    # Mode selection
+    # Analysis mode
     st.markdown("### Analysis Mode")
     analysis_mode = st.radio(
         "Select Mode",
         ["Backtesting (Validate Strategy)", "Production (Optimize for Future)"],
-        help="Backtesting: Split data to validate. Production: Use all data to optimize real portfolio."
+        help="Backtesting: Split data for validation. Production: Use all data for deployment."
     )
     
     col3, col4 = st.columns([1, 1])
@@ -333,66 +359,69 @@ def _render_extended_analysis_section():
             train_split = st.slider("Training Data Split (%)", 30, 90, 80, 5)
         else:
             train_split = 100  # Use all data in production mode
-            st.info("🎯 **Production Mode**: Using 100% of selected date range")
-        mc_simulations = st.number_input("Monte Carlo Simulations", 1000, 10000, 5000, 1000)
+            st.info("Production Mode: Using 100% of selected date range")
+        mc_simulations = st.number_input("Monte Carlo Simulations", 1000, 10000, 5000, 1000,
+                                         help="Number of simulation paths")
     with col4:
-        mc_period_years = st.slider("Monte Carlo Period (years)", 1, 5, 1, 1)
-        mc_distribution = st.selectbox("Monte Carlo Distribution", ["normal", "t-student"], index=0, key="mc_dist")
+        mc_period_years = st.slider("Forecast Period (years)", 1, 5, 1, 1,
+                                    help="Monte Carlo forecast horizon")
+        mc_distribution = st.selectbox("Distribution", ["normal", "t-student"], index=0, 
+                                      key="mc_dist", help="Return distribution assumption")
     
-    # Portfolio method selection
-    st.markdown("### Portfolio Method Selection")
+    # Portfolio method
+    st.markdown("### Method Selection")
     
     if analysis_mode == "Production (Optimize for Future)":
         portfolio_method = st.selectbox(
-            "Preferred Portfolio Method (or Auto-select best)",
+            "Portfolio Construction Method",
             ["Auto-select (Best by Sharpe)", "HRP", "Equal Weight", "Inverse Volatility", 
              "Mean-Variance (Markowitz)", "Minimum Variance", "Risk Parity"],
-            index=0
+            index=0,
+            help="Auto-select chooses method with highest Sharpe ratio on full dataset"
         )
     else:
         portfolio_method = st.selectbox(
-            "Preferred Portfolio Method (or Auto-select best)",
+            "Portfolio Construction Method",
             ["Auto-select (Best OOS Performance)", "HRP", "Equal Weight", "Inverse Volatility", 
              "Mean-Variance (Markowitz)", "Minimum Variance", "Risk Parity"],
-            index=0
+            index=0,
+            help="Auto-select chooses method with best out-of-sample composite score"
         )
     
-    # Info based on mode
+    # Mode info
     if analysis_mode == "Backtesting (Validate Strategy)":
         st.info(f"""
-        📊 **Backtesting Mode**: {train_split}% / {100-train_split}%
+        **Backtesting Mode: {train_split}% Train / {100-train_split}% Test**
         
-        Portfolio weights are calculated **only on training data** ({train_split}%), 
-        then tested out-of-sample on test data ({100-train_split}%) to avoid overfitting.
+        Portfolio weights calculated on training data only, then tested out-of-sample 
+        to validate performance without overfitting.
         
-        ✅ Distribution parameters fitted on training data only
-        ✅ All optimization uses only training period
-        ✅ Performance metrics show out-of-sample results
+        - Distribution parameters: Training data only
+        - Optimization: Training period only  
+        - Performance metrics: Out-of-sample test results
         
-        **Purpose**: Validate that the strategy would have worked historically.
+        Purpose: Validate that the strategy would have worked historically.
         """)
     else:
         date_range_str = f"{extended_start_date.strftime('%Y-%m-%d')} to {extended_end_date.strftime('%Y-%m-%d')}"
         st.success(f"""
-        🎯 **Production Mode**: Real Portfolio Optimization
+        **Production Mode: Full Dataset Optimization**
         
-        Portfolio weights are calculated using **ALL data in date range** ({100}%).
+        Portfolio weights calculated using all data in selected range for deployment.
         
-        **Selected Period**: {date_range_str}
+        - Selected Period: {date_range_str}
+        - Uses most recent market conditions
+        - Monte Carlo forecasts future performance
         
-        ✅ Uses most recent market conditions (up to end date)
-        ✅ Maximum information for optimization
-        ✅ Monte Carlo forecasts future performance
+        Purpose: Build optimal portfolio for deployment with real capital.
         
-        **Purpose**: Build optimal portfolio for deployment with real capital.
-        
-        ⚠️ Note: No out-of-sample test (we're optimizing for unknown future).
-        Backtesting mode validates the methodology works historically.
+        Note: No out-of-sample test (optimizing for unknown future). 
+        Use Backtesting mode to validate methodology.
         """)
     
-    button_text = "🔬 Run Backtest Analysis" if analysis_mode == "Backtesting (Validate Strategy)" else "🎯 Optimize Production Portfolio"
+    button_text = "Run Backtest" if analysis_mode == "Backtesting (Validate Strategy)" else "Optimize Portfolio"
     
-    if st.button(button_text):
+    if st.button(button_text, type="primary"):
         if not extended_tickers or len(extended_tickers) < 3:
             st.error("Please enter at least 3 tickers for meaningful portfolio analysis.")
         elif len(extended_tickers) > 15:
@@ -456,9 +485,9 @@ def _render_extended_analysis_section():
                                 sp500_returns = None
                                 if not sp500_data.empty and len(sp500_data) > 100:
                                     sp500_returns = sp500_data.pct_change().dropna()
-                                    st.success("✅ S&P 500 benchmark data loaded")
+                                    st.success("S&P 500 benchmark data loaded")
                                 else:
-                                    st.warning("⚠️ Could not load S&P 500 benchmark data")
+                                    st.warning("Could not load S&P 500 benchmark data")
                                 
                                 # Run optimization
                                 oos_results = extract_optimal_weights_with_oos(
@@ -514,24 +543,24 @@ def _render_extended_analysis_section():
                                         # Production: select best by in-sample Sharpe (most recent data)
                                         best_sharpe = oos_results['oos_performance']['Sharpe_Ratio'].idxmax()
                                         selected_method = best_sharpe
-                                        st.info(f"🎯 Auto-selected method for production: **{selected_method}** (Highest Sharpe on full data)")
+                                        st.info(f"Auto-selected method for production: **{selected_method}** (Highest Sharpe on full data)")
                                     else:
                                         # Backtesting: use OOS composite score
                                         selected_method = oos_results['best_method']
-                                        st.success(f"✅ Auto-selected method: **{selected_method}** (Best OOS composite score)")
+                                        st.success(f"Auto-selected method: **{selected_method}** (Best OOS composite score)")
                                 else:
                                     selected_method = portfolio_method
                                     if selected_method not in oos_results['all_weights']:
                                         st.error(f"{selected_method} optimization failed. Using best method: {oos_results['best_method']}")
                                         selected_method = oos_results['best_method']
                                     else:
-                                        st.info(f"💼 User selected method: **{selected_method}**")
+                                        st.info(f"User selected method: **{selected_method}**")
                                 
                                 selected_weights = oos_results['all_weights'][selected_method]
                                 
                                 # Display results based on mode
                                 if is_production:
-                                    st.success("🎯 **Production Portfolio Optimized!**")
+                                    st.success("Production Portfolio Optimized")
                                     st.markdown(f"""
                                     ### Portfolio Ready for Deployment
                                     - **Method**: {selected_method}
@@ -545,9 +574,9 @@ def _render_extended_analysis_section():
                                     """)
                                 else:
                                     if selected_method == oos_results['best_method']:
-                                        st.success(f"✅ Analysis completed! Using best method: **{selected_method}**")
+                                        st.success(f"Analysis completed! Using best method: **{selected_method}**")
                                     else:
-                                        st.info(f"✅ Analysis completed! Using selected method: **{selected_method}** (Best was: {oos_results['best_method']})")
+                                        st.info(f"Analysis completed! Using selected method: **{selected_method}** (Best was: {oos_results['best_method']})")
                                 
                                 # Performance Summary - ALL METHODS + BENCHMARK
                                 _render_performance_summary_all(oos_results, selected_method, benchmark_metrics, is_production)
@@ -653,7 +682,7 @@ def _render_performance_summary_all(oos_results, selected_method, benchmark_metr
 
 def _render_portfolio_weights(selected_method, selected_weights, oos_results, returns, is_production=False):
     """Display portfolio weights with CSV download"""
-    st.subheader(f"📋 {selected_method} Portfolio Weights")
+    st.subheader(f"{selected_method} Portfolio Weights")
     
     weights_df = pd.DataFrame({
         'Ticker': selected_weights.index,
@@ -734,7 +763,7 @@ def _render_complete_results_download(oos_results, selected_method, selected_wei
         csv_all_methods = perf_df.to_csv(index=False)
         
         st.download_button(
-            label="📊 Download All Methods Performance",
+            label="Download All Methods Performance",
             data=csv_all_methods,
             file_name=f"all_methods_performance_{returns.index[-1].strftime('%Y%m%d')}.csv",
             mime="text/csv",
@@ -797,7 +826,7 @@ def _render_complete_results_download(oos_results, selected_method, selected_wei
 
 def _render_cumulative_returns(oos_results, best_method, sp500_returns):
     """Render cumulative returns comparison chart"""
-    st.subheader("📈 Cumulative Returns Comparison")
+    st.subheader("Cumulative Returns Comparison")
     portfolio_series = oos_results['portfolio_series']
     
     fig_cum = go.Figure()
@@ -836,7 +865,7 @@ def _render_cumulative_returns(oos_results, best_method, sp500_returns):
 
 def _render_stress_testing(oos_results, best_weights):
     """Display stress testing results"""
-    st.subheader("⚠️ Stress Testing Results")
+    st.subheader("Stress Testing Results")
     stress_results = stress_test_analysis(oos_results['test_returns'], best_weights)
     
     col1, col2, col3 = st.columns(3)
@@ -853,7 +882,7 @@ def _render_stress_testing(oos_results, best_weights):
 
 def _render_returns_distribution(oos_results, selected_weights):
     """Display portfolio returns distribution"""
-    st.subheader("📊 Portfolio Returns Distribution (Out-of-Sample)")
+    st.subheader("Portfolio Returns Distribution (Out-of-Sample)")
     
     test_portfolio_returns = (oos_results['test_returns'] * selected_weights).sum(axis=1)
     stress_results = stress_test_analysis(oos_results['test_returns'], selected_weights)
@@ -919,7 +948,7 @@ def _render_monte_carlo_forecast(returns, best_weights, mc_simulations, mc_perio
     
     # Display distribution info if available
     if 'distribution_params' in mc_results and mc_results['distribution_params']:
-        with st.expander("📊 Distribution Parameters"):
+        with st.expander("Distribution Parameters"):
             params = mc_results['distribution_params']
             if 'df' in params:
                 st.write(f"**T-Student Distribution:**")
@@ -1084,7 +1113,7 @@ def _render_recommendations(selected_method, oos_results, selected_weights, mc_r
         - Monte Carlo probability of profit: {mc_results['prob_profit']:.1f}%
         
         **Next Steps:**
-        1. Strategy validated on out-of-sample data ✅
+        1. Strategy validated on out-of-sample data
         2. Switch to **Production Mode** to optimize for deployment
         3. Consider quarterly rebalancing
         4. Monitor drawdown limits

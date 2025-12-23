@@ -42,10 +42,19 @@ except ImportError:
 
 st.set_page_config(
     layout="wide", 
-    page_title="Interactive Finance Tool",
-    page_icon="💲",
+    page_title="Quant Lab",
+    page_icon="📊",
     initial_sidebar_state="expanded"
 )
+
+# Hide module names at top
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -69,11 +78,7 @@ def main():
     st.sidebar.info("""
     **Quant Lab**
     
-    Tools for quantitative finance:
-    - Dollar Cost Averaging simulation
-    - Technical & statistical analysis
-    - Portfolio optimization with HRP
-    - Monte Carlo forecasting
+    Professional tools for quantitative portfolio analysis and optimization.
     """)
     
     # Route to appropriate page

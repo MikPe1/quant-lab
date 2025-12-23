@@ -13,11 +13,25 @@ from visualizer import plot_simulation_results, display_results_table
 def render_dca_page():
     """Render the DCA Simulator page."""
     
-    st.title("💰 DCA Simulator")
-    st.markdown("""
-    Simulate Dollar Cost Averaging (DCA) strategy with optional "Buy on Dip" enhancement.
-    Compare DCA performance against Buy & Hold strategy.
-    """)
+    st.title("DCA Simulator")
+    with st.expander("Key Assumptions & Methodology", expanded=False):
+        st.markdown("""
+        **Dollar Cost Averaging (DCA)** is an investment strategy where a fixed amount is invested at regular intervals, regardless of asset price. This simulator allows you to compare standard DCA with an optional **"Buy on Dip"** enhancement, which increases investment after significant price drops.
+        
+        **Key Assumptions:**
+        - All investments are made at the daily closing price (no intraday execution).
+        - No transaction costs, taxes, or slippage are considered.
+        - Sufficient liquidity is assumed for all trades.
+        - Historical data is used as-is; past performance does not guarantee future results.
+        - "Buy on Dip" triggers when the asset price drops by the specified percentage from the previous interval.
+        - Buy & Hold benchmark assumes a single lump-sum investment at the start date.
+        
+        **Methodology:**
+        - At each interval, the specified amount is invested.
+        - If "Buy on Dip" is enabled and the price drop threshold is met, the investment amount is multiplied accordingly.
+        - Portfolio value, total invested, and profit/loss are tracked over time.
+        - Results are compared to a Buy & Hold strategy for the same period.
+        """)
     
     st.sidebar.header("Investment Parameters")
 
@@ -77,7 +91,9 @@ def render_dca_page():
     
     if submitted:
         st.write(f"Running simulation for **{ticker}** from **{start_date}**")
-        st.write(f"Initial capital: **${initial_capital:,}** | Regular investment: **${regular_investment_amount}** {investment_interval}")
+        st.write(
+            f"Initial capital: ${initial_capital:,.2f}  |  Regular investment: ${regular_investment_amount:,.2f} {investment_interval}"
+        )
         
         if enable_buy_on_dip:
             st.info(f"'Buy on Dip' enabled with threshold: {buy_on_dip_threshold}% and multiplier: {buy_on_dip_multiplier}x")
