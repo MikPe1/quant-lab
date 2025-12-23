@@ -80,8 +80,15 @@ def run_stationarity_tests(returns, alpha=0.05):
     return results
 
 
-def calculate_technical_indicators(data):
-    """Calculate technical indicators: MACD, Bollinger Bands position, RSI."""
+def calculate_technical_indicators(data, lag=1):
+    """Calculate technical indicators: MACD, Bollinger Bands position, RSI.
+    
+    Args:
+        data: DataFrame with price data
+        lag: Number of periods to lag indicators (default=1 to avoid look-ahead bias)
+    
+    Note: Lagging prevents data leakage - we use indicator values from t-1 to predict t.
+    """
     close = data['Close'].copy()
     
     # MACD
@@ -112,11 +119,11 @@ def calculate_technical_indicators(data):
     # Normalize RSI to -1 to +1 range
     rsi_normalized = (rsi - 50) / 50
     
-    # Create DataFrame with indicators
+    # Create DataFrame with indicators and LAG them to avoid look-ahead bias
     indicators = pd.DataFrame({
-        'macd_hist': macd_hist,
-        'bb_position': bb_position,
-        'rsi_norm': rsi_normalized
+        'macd_hist_L1': macd_hist.shift(lag),
+        'bb_position_L1': bb_position.shift(lag),
+        'rsi_norm_L1': rsi_normalized.shift(lag)
     }, index=data.index)
     
     return indicators.dropna()
@@ -240,6 +247,10 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
                           tech_indicators=None):
     """
     Run multi-step Monte Carlo simulation with both normal and t-student distributions.
+    
+    Note: Technical indicators are NOT used in forecasts to avoid data leakage.
+    We cannot know future values of MACD, Bollinger, RSI in real-time forecasting.
+    They are only used for in-sample model fitting.
     """
     np.random.seed(None)
     
@@ -254,11 +265,8 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
         df_t = None
         std_factor = 1.0
     
-    # Get last values of technical indicators if provided
-    last_tech_values = {}
-    if tech_indicators is not None:
-        for col in tech_indicators.columns:
-            last_tech_values[col] = tech_indicators[col].iloc[-1]
+    # Technical indicators are NOT used in Monte Carlo forecasts
+    # (we don't know their future values - this would be data leakage)
     
     # Monte Carlo simulation
     all_paths = []
@@ -272,24 +280,15 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
         single_path = []
         
         for step in range(forecast_horizon):
-            # Prepare exogenous variables
+            # Prepare exogenous variables (only AR and MA lags, no technical indicators)
             future_exog = {'const': 1.0}
             for lag in ar_lags:
                 future_exog[f'ar_L{lag}'] = returns_extended.iloc[-lag]
             for lag in ma_lags:
                 future_exog[f'ma_L{lag}'] = residuals_extended.iloc[-lag]
             
-            # Add technical indicators (using last known values)
-            for col, value in last_tech_values.items():
-                future_exog[col] = value
-        for step in range(forecast_horizon):
-            # Prepare exogenous variables
-            future_exog = {'const': 1.0}
-            for lag in ar_lags:
-                future_exog[f'ar_L{lag}'] = returns_extended.iloc[-lag]
-            for lag in ma_lags:
-                future_exog[f'ma_L{lag}'] = residuals_extended.iloc[-lag]
-            
+            # Technical indicators are set to 0 (neutral) or their column average from training
+            # since we cannot know their future values
             future_exog_df = pd.DataFrame([future_exog]).reindex(columns=X_final.columns, fill_value=0.0)
             
             # Forecast mean
@@ -430,6 +429,286 @@ def create_fan_chart(paths_df, cumulative_paths_df, stock_name, n_simulations, d
     return fig
 
 
+def plot_residuals_diagnostics(residuals, model_name="ARIMA"):
+    """
+    Comprehensive residuals diagnostics for ARIMA model.
+    Shows: time series, histogram with normal curve, Q-Q plot, ACF of residuals and squared residuals.
+    """
+    from scipy.stats import probplot
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=3, cols=2,
+        subplot_titles=(
+            f'Reszty {model_name} w czasie',
+            f'Histogram reszt + rozkład normalny',
+            f'Q-Q Plot (normalność)',
+            f'ACF Reszt',
+            f'Reszty kwadratowe (efekty ARCH)',
+            f'ACF Reszt Kwadratowych'
+        ),
+        specs=[
+            [{"type": "scatter"}, {"type": "histogram"}],
+            [{"type": "scatter"}, {"type": "scatter"}],
+            [{"type": "scatter"}, {"type": "scatter"}]
+        ],
+        vertical_spacing=0.1,
+        horizontal_spacing=0.12
+    )
+    
+    residuals_clean = residuals.dropna()
+    n = len(residuals_clean)
+    
+    # 1. Residuals over time
+    fig.add_trace(
+        go.Scatter(x=residuals_clean.index, y=residuals_clean.values,
+                   mode='lines', line=dict(color='cyan', width=1),
+                   name='Reszty'),
+        row=1, col=1
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="red", row=1, col=1)
+    
+    # 2. Histogram with normal curve
+    fig.add_trace(
+        go.Histogram(x=residuals_clean.values, nbinsx=50,
+                     name='Histogram', marker_color='lightblue',
+                     histnorm='probability density'),
+        row=1, col=2
+    )
+    
+    # Add normal distribution curve
+    x_range = np.linspace(residuals_clean.min(), residuals_clean.max(), 100)
+    normal_curve = stats.norm.pdf(x_range, residuals_clean.mean(), residuals_clean.std())
+    fig.add_trace(
+        go.Scatter(x=x_range, y=normal_curve,
+                   mode='lines', line=dict(color='red', width=2),
+                   name='Rozkład normalny'),
+        row=1, col=2
+    )
+    
+    # 3. Q-Q Plot
+    qq = probplot(residuals_clean, dist="norm")
+    fig.add_trace(
+        go.Scatter(x=qq[0][0], y=qq[0][1],
+                   mode='markers', marker=dict(color='cyan', size=4),
+                   name='Q-Q'),
+        row=2, col=1
+    )
+    # Add reference line
+    qq_min, qq_max = qq[0][0].min(), qq[0][0].max()
+    fig.add_trace(
+        go.Scatter(x=[qq_min, qq_max], y=[qq_min * qq[1][0] + qq[1][1], qq_max * qq[1][0] + qq[1][1]],
+                   mode='lines', line=dict(color='red', dash='dash', width=2),
+                   name='Linia referencyjna'),
+        row=2, col=1
+    )
+    
+    # 4. ACF of residuals
+    nlags = min(40, len(residuals_clean) // 4)
+    acf_values = acf(residuals_clean, nlags=nlags, alpha=0.05)[0]
+    ci_value = 1.96 / np.sqrt(n)
+    
+    lags = np.arange(1, nlags + 1)
+    colors_acf = ['red' if abs(val) > ci_value else 'lightblue' for val in acf_values[1:]]
+    
+    for i, (lag, val) in enumerate(zip(lags, acf_values[1:])):
+        fig.add_trace(
+            go.Scatter(x=[lag, lag], y=[0, val],
+                       mode='lines', line=dict(color=colors_acf[i], width=6),
+                       showlegend=False),
+            row=2, col=2
+        )
+    
+    fig.add_hline(y=ci_value, line_dash="dash", line_color="red", row=2, col=2)
+    fig.add_hline(y=-ci_value, line_dash="dash", line_color="red", row=2, col=2)
+    
+    # 5. Squared residuals (ARCH effects)
+    squared_residuals = residuals_clean ** 2
+    fig.add_trace(
+        go.Scatter(x=squared_residuals.index, y=squared_residuals.values,
+                   mode='lines', line=dict(color='orange', width=1),
+                   name='Reszty²'),
+        row=3, col=1
+    )
+    
+    # 6. ACF of squared residuals
+    acf_squared = acf(squared_residuals, nlags=nlags, alpha=0.05)[0]
+    colors_acf_sq = ['red' if abs(val) > ci_value else 'orange' for val in acf_squared[1:]]
+    
+    for i, (lag, val) in enumerate(zip(lags, acf_squared[1:])):
+        fig.add_trace(
+            go.Scatter(x=[lag, lag], y=[0, val],
+                       mode='lines', line=dict(color=colors_acf_sq[i], width=6),
+                       showlegend=False),
+            row=3, col=2
+        )
+    
+    fig.add_hline(y=ci_value, line_dash="dash", line_color="red", row=3, col=2)
+    fig.add_hline(y=-ci_value, line_dash="dash", line_color="red", row=3, col=2)
+    
+    # Update layout
+    fig.update_xaxes(title_text="Data", row=1, col=1)
+    fig.update_xaxes(title_text="Wartość", row=1, col=2)
+    fig.update_xaxes(title_text="Kwantyle teoretyczne", row=2, col=1)
+    fig.update_xaxes(title_text="Lag", row=2, col=2)
+    fig.update_xaxes(title_text="Data", row=3, col=1)
+    fig.update_xaxes(title_text="Lag", row=3, col=2)
+    
+    fig.update_yaxes(title_text="Reszty", row=1, col=1)
+    fig.update_yaxes(title_text="Gęstość", row=1, col=2)
+    fig.update_yaxes(title_text="Kwantyle próbki", row=2, col=1)
+    fig.update_yaxes(title_text="ACF", row=2, col=2)
+    fig.update_yaxes(title_text="Reszty²", row=3, col=1)
+    fig.update_yaxes(title_text="ACF", row=3, col=2)
+    
+    fig.update_layout(
+        height=1000,
+        template='plotly_dark',
+        showlegend=True,
+        title_text=f"Diagnostyka Reszt Modelu {model_name}",
+        title_x=0.5
+    )
+    
+    return fig
+
+
+def plot_garch_standardized_residuals(garch_res, model_name="GARCH"):
+    """
+    Diagnostics for standardized residuals from GARCH model.
+    Standardized residuals should be i.i.d. with mean 0 and variance 1.
+    """
+    from scipy.stats import probplot
+    
+    # Get standardized residuals
+    std_resid = garch_res.std_resid
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=(
+            f'Standaryzowane reszty {model_name}',
+            f'Histogram + rozkład t-Student',
+            f'Q-Q Plot',
+            f'ACF Standaryzowanych Reszt'
+        ),
+        specs=[
+            [{"type": "scatter"}, {"type": "histogram"}],
+            [{"type": "scatter"}, {"type": "scatter"}]
+        ],
+        vertical_spacing=0.15,
+        horizontal_spacing=0.12
+    )
+    
+    n = len(std_resid)
+    
+    # 1. Standardized residuals over time
+    fig.add_trace(
+        go.Scatter(x=np.arange(len(std_resid)), y=std_resid,
+                   mode='lines', line=dict(color='lightgreen', width=1),
+                   name='Std. reszty'),
+        row=1, col=1
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="red", row=1, col=1)
+    fig.add_hline(y=2, line_dash="dot", line_color="orange", row=1, col=1)
+    fig.add_hline(y=-2, line_dash="dot", line_color="orange", row=1, col=1)
+    
+    # 2. Histogram with t-distribution
+    fig.add_trace(
+        go.Histogram(x=std_resid, nbinsx=50,
+                     name='Histogram', marker_color='lightgreen',
+                     histnorm='probability density'),
+        row=1, col=2
+    )
+    
+    # Add fitted distribution curve (t-student if available)
+    x_range = np.linspace(std_resid.min(), std_resid.max(), 100)
+    if 'nu' in garch_res.params:
+        df_t = garch_res.params['nu']
+        fitted_curve = stats.t.pdf(x_range, df_t, loc=std_resid.mean(), scale=std_resid.std())
+        curve_name = f't-Student (df={df_t:.2f})'
+    else:
+        fitted_curve = stats.norm.pdf(x_range, std_resid.mean(), std_resid.std())
+        curve_name = 'Normalny'
+    
+    fig.add_trace(
+        go.Scatter(x=x_range, y=fitted_curve,
+                   mode='lines', line=dict(color='red', width=2),
+                   name=curve_name),
+        row=1, col=2
+    )
+    
+    # 3. Q-Q Plot
+    if 'nu' in garch_res.params:
+        qq = probplot(std_resid, dist=stats.t, sparams=(garch_res.params['nu'],))
+    else:
+        qq = probplot(std_resid, dist="norm")
+    
+    fig.add_trace(
+        go.Scatter(x=qq[0][0], y=qq[0][1],
+                   mode='markers', marker=dict(color='lightgreen', size=4),
+                   name='Q-Q'),
+        row=2, col=1
+    )
+    
+    qq_min, qq_max = qq[0][0].min(), qq[0][0].max()
+    fig.add_trace(
+        go.Scatter(x=[qq_min, qq_max], y=[qq_min * qq[1][0] + qq[1][1], qq_max * qq[1][0] + qq[1][1]],
+                   mode='lines', line=dict(color='red', dash='dash', width=2),
+                   name='Linia referencyjna'),
+        row=2, col=1
+    )
+    
+    # 4. ACF of standardized residuals
+    nlags = min(40, len(std_resid) // 4)
+    acf_values = acf(std_resid, nlags=nlags, alpha=0.05)[0]
+    ci_value = 1.96 / np.sqrt(n)
+    
+    lags = np.arange(1, nlags + 1)
+    colors_acf = ['red' if abs(val) > ci_value else 'lightgreen' for val in acf_values[1:]]
+    
+    for i, (lag, val) in enumerate(zip(lags, acf_values[1:])):
+        fig.add_trace(
+            go.Scatter(x=[lag, lag], y=[0, val],
+                       mode='lines', line=dict(color=colors_acf[i], width=6),
+                       showlegend=False),
+            row=2, col=2
+        )
+    
+    fig.add_hline(y=ci_value, line_dash="dash", line_color="red", row=2, col=2)
+    fig.add_hline(y=-ci_value, line_dash="dash", line_color="red", row=2, col=2)
+    
+    # Update layout
+    fig.update_xaxes(title_text="Obserwacja", row=1, col=1)
+    fig.update_xaxes(title_text="Wartość", row=1, col=2)
+    fig.update_xaxes(title_text="Kwantyle teoretyczne", row=2, col=1)
+    fig.update_xaxes(title_text="Lag", row=2, col=2)
+    
+    fig.update_yaxes(title_text="Std. reszty", row=1, col=1)
+    fig.update_yaxes(title_text="Gęstość", row=1, col=2)
+    fig.update_yaxes(title_text="Kwantyle próbki", row=2, col=1)
+    fig.update_yaxes(title_text="ACF", row=2, col=2)
+    
+    fig.update_layout(
+        height=700,
+        template='plotly_dark',
+        showlegend=True,
+        title_text=f"Diagnostyka Standaryzowanych Reszt Modelu {model_name}",
+        title_x=0.5
+    )
+    
+    # Calculate statistics
+    stats_dict = {
+        'mean': std_resid.mean(),
+        'std': std_resid.std(),
+        'skewness': stats.skew(std_resid),
+        'kurtosis': stats.kurtosis(std_resid, fisher=True),  # Excess kurtosis
+        'jb_stat': stats.jarque_bera(std_resid)[0],
+        'jb_pvalue': stats.jarque_bera(std_resid)[1]
+    }
+    
+    return fig, stats_dict
+
+
 def create_histogram(data, median_val, var_95, var_99, title, xlabel):
     """Create histogram with VaR lines."""
     fig = px.histogram(
@@ -464,6 +743,86 @@ def create_histogram(data, median_val, var_95, var_99, title, xlabel):
     return fig
 
 
+def create_model_flow_diagram():
+    """Create a visual diagram showing data flow between ARIMA, GARCH, and Monte Carlo."""
+    fig = go.Figure()
+    
+    # Define boxes
+    boxes = [
+        {"name": "Dane historyczne\n(zwroty)", "x": 0.5, "y": 4, "color": "lightblue"},
+        {"name": "Model ARIMA\n(średnia)", "x": 0.5, "y": 3, "color": "cyan"},
+        {"name": "Reszty ARIMA\n(ε_t)", "x": 0.5, "y": 2, "color": "orange"},
+        {"name": "Model GARCH\n(zmienność)", "x": 0.5, "y": 1, "color": "lightgreen"},
+        {"name": "Prognozy\nμ_t (ARIMA)", "x": 0.2, "y": 0, "color": "cyan"},
+        {"name": "Prognozy\nσ_t² (GARCH)", "x": 0.8, "y": 0, "color": "lightgreen"},
+        {"name": "Monte Carlo\nr_t = μ_t + ε_t·σ_t", "x": 0.5, "y": -1, "color": "gold"},
+    ]
+    
+    # Add boxes
+    for box in boxes:
+        fig.add_shape(
+            type="rect",
+            x0=box["x"]-0.15, y0=box["y"]-0.3,
+            x1=box["x"]+0.15, y1=box["y"]+0.3,
+            line=dict(color="white", width=2),
+            fillcolor=box["color"]
+        )
+        fig.add_annotation(
+            x=box["x"], y=box["y"],
+            text=box["name"],
+            showarrow=False,
+            font=dict(size=11, color="black", family="Arial Black"),
+            align="center"
+        )
+    
+    # Add arrows
+    arrows = [
+        {"x0": 0.5, "y0": 3.7, "x1": 0.5, "y1": 3.3, "label": "zwroty"},
+        {"x0": 0.5, "y0": 2.7, "x1": 0.5, "y1": 2.3, "label": "reszty"},
+        {"x0": 0.5, "y0": 1.7, "x1": 0.5, "y1": 1.3, "label": "warunkowa\nwariancja"},
+        {"x0": 0.35, "y0": 0.7, "x1": 0.28, "y1": 0.3, "label": ""},
+        {"x0": 0.65, "y0": 0.7, "x1": 0.72, "y1": 0.3, "label": ""},
+        {"x0": 0.2, "y0": -0.3, "x1": 0.35, "y1": -0.7, "label": ""},
+        {"x0": 0.8, "y0": -0.3, "x1": 0.65, "y1": -0.7, "label": ""},
+    ]
+    
+    for arrow in arrows:
+        fig.add_annotation(
+            x=arrow["x1"], y=arrow["y1"],
+            ax=arrow["x0"], ay=arrow["y0"],
+            xref="x", yref="y",
+            axref="x", ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1.5,
+            arrowwidth=2,
+            arrowcolor="white"
+        )
+        if arrow["label"]:
+            mid_x = (arrow["x0"] + arrow["x1"]) / 2
+            mid_y = (arrow["y0"] + arrow["y1"]) / 2
+            fig.add_annotation(
+                x=mid_x + 0.15, y=mid_y,
+                text=arrow["label"],
+                showarrow=False,
+                font=dict(size=9, color="lightgray"),
+                align="left"
+            )
+    
+    fig.update_layout(
+        xaxis=dict(range=[-0.1, 1.1], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(range=[-1.5, 4.5], showgrid=False, zeroline=False, visible=False),
+        template="plotly_dark",
+        height=600,
+        title="Przepływ danych między modelami",
+        title_x=0.5,
+        showlegend=False,
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    
+    return fig
+
+
 def render_arima_garch_page():
     """Main function to render ARIMA-GARCH Monte Carlo Analysis page."""
     
@@ -487,9 +846,9 @@ def render_arima_garch_page():
             help="Auto: automatyczna identyfikacja lagów na podstawie ACF/PACF. Prosty: stały model ARIMA(2,2)"
         )
         use_tech_indicators = st.checkbox(
-            "Użyj wskaźników technicznych",
+            "Użyj wskaźników technicznych (tylko in-sample)",
             value=False,
-            help="Dodaj MACD, pozycję Bollingera i RSI jako zmienne egzogeniczne"
+            help="Dodaj opóźnione (L1) wskaźniki: MACD, Bollinger, RSI. UWAGA: Używane tylko do dopasowania modelu, NIE w prognozach Monte Carlo (unikamy data leakage)"
         )
         nlags_acf = st.number_input("Liczba lagów ACF/PACF", min_value=10, max_value=60, value=40)
         garch_p = st.number_input("GARCH p", min_value=1, max_value=5, value=1)
@@ -505,25 +864,84 @@ def render_arima_garch_page():
     # Key Assumptions
     with st.expander("📚 Kluczowe Założenia i Metodologia", expanded=False):
         st.markdown("""
-        **Metodologia ARIMA-GARCH:**
-        - **ARIMA (Średnia)**: Modeluje warunkową średnią zwrotów z autoregresją i średnią ruchomą
-        - **GARCH (Zmienność)**: Modeluje warunkową wariancję (heteroskedastyczność)
-        - **Monte Carlo**: Symuluje wieloetapowe ścieżki przyszłych zwrotów
+        ### **Jak działają te modele razem?**
         
-        **Proces modelowania:**
+        **ARIMA, GARCH i Monte Carlo to trzy współpracujące elementy:**
+        """)
+        
+        # Show flow diagram
+        st.plotly_chart(create_model_flow_diagram(), use_container_width=True)
+        
+        st.markdown("""
+        ### **Przepływ danych krok po kroku:**
+        
+        **1️⃣ Model ARIMA (średnia warunkowa)**
+        ```
+        r_t = μ + φ₁·r_{t-1} + φ₂·r_{t-2} + ... + θ₁·ε_{t-1} + θ₂·ε_{t-2} + ... + ε_t
+        ```
+        - **Input**: Historyczne zwroty (r_t)
+        - **Output**: Prognoza średniej (μ_t) + **reszty (ε_t)**
+        - **Co to są reszty?** To różnica między rzeczywistym zwrotem a prognozą: ε_t = r_t - μ_t
+        
+        **2️⃣ Model GARCH (zmienność warunkowa)**
+        ```
+        σ²_t = ω + α₁·ε²_{t-1} + β₁·σ²_{t-1}
+        ```
+        - **Input**: **Reszty z ARIMA (ε_t)** ← tutaj następuje połączenie!
+        - **Output**: Prognoza wariancji (σ²_t)
+        - **Dlaczego reszty?** Bo chcemy modelować zmienność "niespodzianek", nie samych zwrotów
+        
+        **3️⃣ Symulacja Monte Carlo**
+        ```
+        r_t^sim = μ_t + ε_t·σ_t,  gdzie ε_t ~ t(ν) lub N(0,1)
+        ```
+        - **Input**: Prognoza średniej z ARIMA (μ_t) + Prognoza odch. std. z GARCH (σ_t)
+        - **Process**: Losujemy szok (ε_t) ze standardowego rozkładu i skalujemy przez σ_t
+        - **Output**: Wiele scenariuszy przyszłych zwrotów
+        
+        ---
+        
+        ### **Proces modelowania:**
         1. Identyfikacja lagów AR i MA na podstawie ACF/PACF
         2. Budowa "rzadkiego" modelu ARMA z wybranymi lagami
-        3. Dopasowanie modelu GARCH na resztach ARMA
-        4. Wieloetapowa symulacja Monte Carlo
+        3. **Diagnostyka reszt ARMA** - sprawdzenie czy model średniej jest dobry
+        4. Dopasowanie modelu GARCH **na resztach ARMA** ← kluczowe!
+        5. **Diagnostyka standaryzowanych reszt GARCH** - sprawdzenie czy model zmienności jest dobry
+        6. Wieloetapowa symulacja Monte Carlo używająca **obu modeli**
         
-        **Rozkłady:**
+        ### **Dlaczego diagnostyka jest ważna:**
+        - Reszty ARMA powinny być białym szumem (brak autokorelacji w poziomach)
+        - Reszty kwadratowe powinny pokazywać autokorelację (potrzeba GARCH)
+        - Standaryzowane reszty GARCH powinny być i.i.d. (niezależne, identycznie rozłożone)
+        - Jeśli diagnostyka pokazuje problemy, model może być źle specyfikowany
+        
+        ### **O optymalizacji jednoczesnej:**
+        - **Dwuetapowe (używane tutaj)**: ARIMA → reszty → GARCH
+          - ✅ Prostsze w implementacji
+          - ✅ Bardziej elastyczne (możemy użyć custom ARIMA)
+          - ✅ Łatwiejsza diagnostyka każdego etapu
+        - **Jednoczesne**: Maksymalizacja łącznej funkcji wiarygodności
+          - ✅ Teoretycznie bardziej efektywne (mniejsze błędy standardowe)
+          - ❌ Trudniejsze w implementacji
+          - ❌ W praktyce różnice są minimalne
+        
+        ### **Rozkłady:**
         - **Rozkład normalny**: Zakłada symetryczne ogony
         - **Rozkład t-Studenta**: Uwzględnia grube ogony (leptokurtoza) typowe dla danych finansowych
         
-        **Ostrzeżenia:**
+        ### **Ostrzeżenia:**
         - Wyniki to symulacje probabilistyczne, nie gwarancje
         - VaR 95% to wartość, poniżej której znajduje się 5% najgorszych scenariuszy
         - Model zakłada stałą strukturę zależności (może nie sprawdzić się w kryzysach)
+        - Monte Carlo zakłada, że przyszłość będzie podobna do przeszłości
+        
+        ### **⚠️ Data Leakage i Wskaźniki Techniczne:**
+        - **Problem**: Wskaźniki (MACD, Bollinger, RSI) są obliczane z cen, których jeszcze nie znamy
+        - **Rozwiązanie**: 
+          1. **In-sample**: Używamy opóźnionych wskaźników (lag=1) - wartość z t-1 do predykcji na t
+          2. **Out-of-sample (Monte Carlo)**: Wskaźniki NIE są używane w prognozach
+        - **Dlaczego?** W rzeczywistym tradingu nie znamy przyszłych wartości wskaźników!
+        - Wskaźniki mogą poprawić dopasowanie modelu (in-sample), ale nie są dostępne w prognozach
         """)
     
     if run_analysis:
@@ -603,24 +1021,28 @@ def render_arima_garch_page():
             tech_indicators = None
             if use_tech_indicators:
                 st.subheader("3️⃣ Wskaźniki Techniczne")
+                st.warning("""⚠️ **Ważne:** Wskaźniki są opóźnione o 1 dzień (lag=1) aby uniknąć data leakage.
+                Używamy wartości z t-1 do predykcji na t. W prognozach Monte Carlo wskaźniki NIE są używane,
+                bo nie znamy ich przyszłych wartości.""")
                 with st.spinner("Obliczanie wskaźników technicznych..."):
-                    tech_indicators = calculate_technical_indicators(data)
+                    tech_indicators = calculate_technical_indicators(data, lag=1)
                 
-                # Display last values of indicators
+                # Display last values of indicators (already lagged)
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("MACD Histogram", f"{tech_indicators['macd_hist'].iloc[-1]:.4f}")
+                    st.metric("MACD Histogram (L1)", f"{tech_indicators['macd_hist_L1'].iloc[-1]:.4f}")
                 with col2:
-                    st.metric("Pozycja Bollingera", f"{tech_indicators['bb_position'].iloc[-1]:.4f}", 
-                             help="-1 (dolny pas) do +1 (górny pas)")
+                    st.metric("Pozycja Bollingera (L1)", f"{tech_indicators['bb_position_L1'].iloc[-1]:.4f}", 
+                             help="-1 (dolny pas) do +1 (górny pas), opóźnienie 1 dzień")
                 with col3:
-                    st.metric("RSI (norm.)", f"{tech_indicators['rsi_norm'].iloc[-1]:.4f}",
-                             help="-1 (oversold) do +1 (overbought)")
+                    st.metric("RSI (norm., L1)", f"{tech_indicators['rsi_norm_L1'].iloc[-1]:.4f}",
+                             help="-1 (oversold) do +1 (overbought), opóźnienie 1 dzień")
             
             # Build ARMA model with or without technical indicators
             step_number = "4️⃣" if use_tech_indicators else "3️⃣"
             model_desc = "ARMA + Wskaźniki" if use_tech_indicators else "ARMA"
             st.subheader(f"{step_number} Budowa Modelu {model_desc}")
+            st.info(f"💡 Model ARMA generuje **reszty** (ε_t = rzeczywisty zwrot - prognoza), które będą użyte w modelu GARCH")
             with st.spinner(f"Dopasowywanie modelu {model_desc}..."):
                 model_sparse_arma, X_final, residuals, returns_full = build_sparse_arma_model(
                     returns, ar_lags, ma_lags, tech_indicators
@@ -629,9 +1051,35 @@ def render_arima_garch_page():
             with st.expander("📊 Podsumowanie modelu ARMA (kliknij aby rozwinąć)"):
                 st.code(str(model_sparse_arma.summary()), language="text")
             
-            # GARCH model
+            # ARMA Residuals Diagnostics
             step_number = "5️⃣" if use_tech_indicators else "4️⃣"
+            st.subheader(f"{step_number} Diagnostyka Reszt ARMA")
+            st.markdown("""
+            **Co sprawdzamy:**
+            - **Reszty w czasie**: powinny wyglądać losowo, bez wzorców
+            - **Histogram + Q-Q plot**: sprawdzamy normalność rozkładu
+            - **ACF reszt**: brak autokorelacji = dobry model średniej
+            - **ACF reszt kwadratowych**: istotne lagi = efekty ARCH/GARCH (oczekiwane przed dopasowaniem GARCH)
+            """)
+            
+            with st.spinner("Generowanie diagnostyki reszt ARMA..."):
+                fig_arma_diag = plot_residuals_diagnostics(residuals, model_name="ARMA")
+            st.plotly_chart(fig_arma_diag, use_container_width=True)
+            
+            # Interpretacja ACF reszt kwadratowych
+            squared_resid = residuals.dropna() ** 2
+            acf_sq = acf(squared_resid, nlags=min(20, len(squared_resid)//4))[1:]
+            n_significant_sq = np.sum(np.abs(acf_sq) > 1.96/np.sqrt(len(squared_resid)))
+            
+            if n_significant_sq > 0:
+                st.info(f"✅ Wykryto {n_significant_sq} istotnych lagów w ACF reszt kwadratowych - to potwierdza potrzebę modelu GARCH")
+            else:
+                st.warning("⚠️ Brak istotnych lagów w ACF reszt kwadratowych - efekty GARCH mogą być słabe")
+            
+            # GARCH model
+            step_number = "6️⃣" if use_tech_indicators else "5️⃣"
             st.subheader(f"{step_number} Model GARCH na Resztach")
+            st.info(f"💡 Model GARCH otrzymuje **reszty z ARIMA** (ε_t) i modeluje ich **warunkową wariancję** (σ²_t)")
             with st.spinner("Dopasowywanie modelu GARCH..."):
                 dist_param = 't' if distribution_type == "t-Student" else 'normal'
                 garch_res = fit_garch_model(residuals, p=garch_p, q=garch_q, dist=dist_param)
@@ -639,9 +1087,47 @@ def render_arima_garch_page():
             with st.expander("📊 Podsumowanie modelu GARCH (kliknij aby rozwinąć)"):
                 st.code(str(garch_res.summary()), language="text")
             
-            # Diagnostic tests
-            step_number = "6️⃣" if use_tech_indicators else "5️⃣"
-            st.subheader(f"{step_number} Diagnostyka Reszt")
+            # GARCH Standardized Residuals Diagnostics
+            step_number = "7️⃣" if use_tech_indicators else "6️⃣"
+            st.subheader(f"{step_number} Diagnostyka Standaryzowanych Reszt GARCH")
+            st.markdown("""
+            **Co sprawdzamy:**
+            - **Standaryzowane reszty**: powinny mieć średnią ~0 i odch. std. ~1
+            - **Histogram + Q-Q plot**: zgodność z rozkładem (t-Student lub normalny)
+            - **ACF standaryzowanych reszt**: brak autokorelacji = dobry model GARCH
+            - Standaryzowane reszty = reszty / √(warunkowa wariancja z GARCH)
+            """)
+            
+            with st.spinner("Generowanie diagnostyki GARCH..."):
+                fig_garch_diag, garch_stats = plot_garch_standardized_residuals(
+                    garch_res, model_name=f"GARCH({garch_p},{garch_q})"
+                )
+            st.plotly_chart(fig_garch_diag, use_container_width=True)
+            
+            # Display standardized residuals statistics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                color = "normal" if abs(garch_stats['mean']) < 0.1 else "off"
+                st.metric("Średnia std. reszt", f"{garch_stats['mean']:.4f}", 
+                         help="Powinna być bliska 0", delta_color=color)
+            with col2:
+                color = "normal" if abs(garch_stats['std'] - 1.0) < 0.2 else "off"
+                st.metric("Odch. std.", f"{garch_stats['std']:.4f}",
+                         help="Powinna być bliska 1", delta_color=color)
+            with col3:
+                st.metric("Skośność", f"{garch_stats['skewness']:.4f}",
+                         help="0 = symetryczny")
+            with col4:
+                st.metric("Kurtoza (excess)", f"{garch_stats['kurtosis']:.4f}",
+                         help="0 = normalny, >0 = grube ogony")
+            
+            # Jarque-Bera test result
+            jb_status = "✅ Normalny" if garch_stats['jb_pvalue'] > 0.05 else "⚠️ Nienormalny"
+            st.info(f"**Test Jarque-Bera**: {jb_status} (statystyka={garch_stats['jb_stat']:.2f}, p={garch_stats['jb_pvalue']:.4f})")
+            
+            # Diagnostic tests (pozostałe testy)
+            step_number = "8️⃣" if use_tech_indicators else "7️⃣"
+            st.subheader(f"{step_number} Testy Statystyczne (ARMA)")
             residuals_final = model_sparse_arma.resid.dropna()
             
             col1, col2, col3 = st.columns(3)
@@ -667,8 +1153,15 @@ def render_arima_garch_page():
                 st.metric("Test ARCH-LM", arch_status, f"p={arch_pvalue:.4f}")
             
             # Monte Carlo simulation
-            step_number = "7️⃣" if use_tech_indicators else "6️⃣"
+            step_number = "9️⃣" if use_tech_indicators else "8️⃣"
             st.subheader(f"{step_number} Symulacja Monte Carlo")
+            st.info("💡 Monte Carlo używa **obu modeli**: prognozy średniej z ARIMA (μ_t) + prognozy zmienności z GARCH (σ_t)")
+            st.markdown(f"""
+            **Formuła symulacji:** r_t = μ_t + ε_t · σ_t, gdzie:
+            - μ_t = prognoza z modelu ARMA
+            - σ_t = √(prognoza wariancji z GARCH)
+            - ε_t ~ {distribution_type} = losowy szok
+            """)
             st.write(f"Symulacja {n_simulations} ścieżek na {forecast_horizon} dni naprzód...")
             
             with st.spinner("Uruchamianie symulacji Monte Carlo..."):
@@ -726,8 +1219,8 @@ def render_arima_garch_page():
                 st.metric("Prawdopodobieństwo straty (skum.)", f"{prob_loss_cum:.2%}")
             
             # Visualizations
-            step_number = "8️⃣" if use_tech_indicators else "7️⃣"
-            st.subheader(f"{step_number} Wizualizacje")
+            step_number = "🔟" if use_tech_indicators else "9️⃣"
+            st.subheader(f"{step_number} Wizualizacje Prognozy")
             
             # Fan chart
             st.markdown("**Wykres Wachlarzowy (Fan Chart)**")
