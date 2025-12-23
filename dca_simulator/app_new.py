@@ -42,8 +42,8 @@ except ImportError:
 
 st.set_page_config(
     layout="wide", 
-    page_title="Interactive DCA Simulation Tool",
-    page_icon="💰",
+    page_title="Interactive Finance Tool",
+    page_icon="💲",
     initial_sidebar_state="expanded"
 )
 
@@ -67,7 +67,7 @@ def main():
     
     st.sidebar.markdown("---")
     st.sidebar.info("""
-    **Quant Lab v2.0**
+    **Quant Lab**
     
     Tools for quantitative finance:
     - Dollar Cost Averaging simulation

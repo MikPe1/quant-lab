@@ -84,27 +84,105 @@ def _render_basic_portfolio_section():
                     # CAPM expected return
                     expected_return = risk_free_rate + beta * (expected_market_return - risk_free_rate)
                     
-                    # Sharpe ratio
-                    sharpe = (expected_return - risk_free_rate) / (stock_ret_aligned.std() * np.sqrt(252)) if stock_ret_aligned.std() > 0 else np.nan
+                    # Calculate both actual and theoretical metrics
+                    actual_annual_return = stock_ret_aligned.mean() * 252
+                    annual_volatility = stock_ret_aligned.std() * np.sqrt(252)
                     
-                    capm_results.append({"Ticker": ticker, "Beta": beta, "Expected Return": expected_return, "Sharpe Ratio": sharpe, "Error": None})
+                    # CAPM Sharpe (theoretical - ex-ante)
+                    capm_sharpe = (expected_return - risk_free_rate) / annual_volatility if annual_volatility > 0 else np.nan
+                    
+                    # Actual Sharpe (empirical - ex-post)
+                    actual_sharpe = (actual_annual_return - risk_free_rate) / annual_volatility if annual_volatility > 0 else np.nan
+                    
+                    capm_results.append({
+                        "Ticker": ticker, 
+                        "Beta": beta, 
+                        "CAPM Expected Return": expected_return,
+                        "Actual Annual Return": actual_annual_return,
+                        "Annual Volatility": annual_volatility,
+                        "CAPM Sharpe Ratio": capm_sharpe,
+                        "Actual Sharpe Ratio": actual_sharpe,
+                        "Error": None
+                    })
                 
                 # Display CAPM results
                 df_capm = pd.DataFrame(capm_results)
                 st.subheader("CAPM Results")
-                st.dataframe(df_capm)
                 
-                # Plot
+                st.info("""
+                📊 **Understanding the Sharpe Ratios:**
+                - **CAPM Sharpe** = Theoretical (ex-ante) using CAPM expected return
+                - **Actual Sharpe** = Historical (ex-post) using realized return
+                - If they're similar, CAPM predicts well for that asset
+                """)
+                
+                # Format display
+                display_df = df_capm.copy()
+                for col in ['Beta', 'CAPM Expected Return', 'Actual Annual Return', 'Annual Volatility']:
+                    if col in display_df.columns:
+                        display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+                for col in ['CAPM Sharpe Ratio', 'Actual Sharpe Ratio']:
+                    if col in display_df.columns:
+                        display_df[col] = display_df[col].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "N/A")
+                
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Plots
                 valid_capm = df_capm.dropna(subset=['Beta'])
                 if not valid_capm.empty:
-                    fig_beta = px.bar(valid_capm, x='Ticker', y='Beta', title="Betas")
-                    st.plotly_chart(fig_beta)
+                    col1, col2 = st.columns(2)
                     
-                    fig_return = px.bar(valid_capm, x='Ticker', y='Expected Return', title="Expected Returns (CAPM)")
-                    st.plotly_chart(fig_return)
+                    with col1:
+                        fig_beta = px.bar(valid_capm, x='Ticker', y='Beta', title="Betas (Market Sensitivity)")
+                        fig_beta.update_layout(height=400)
+                        st.plotly_chart(fig_beta, use_container_width=True)
                     
-                    fig_sharpe = px.bar(valid_capm, x='Ticker', y='Sharpe Ratio', title="Sharpe Ratios")
-                    st.plotly_chart(fig_sharpe)
+                    with col2:
+                        # Sharpe Ratios comparison
+                        fig_sharpe = go.Figure()
+                        fig_sharpe.add_trace(go.Bar(
+                            x=valid_capm['Ticker'],
+                            y=valid_capm['CAPM Sharpe Ratio'],
+                            name='CAPM Sharpe (Theoretical)',
+                            marker_color='lightcoral'
+                        ))
+                        fig_sharpe.add_trace(go.Bar(
+                            x=valid_capm['Ticker'],
+                            y=valid_capm['Actual Sharpe Ratio'],
+                            name='Actual Sharpe (Historical)',
+                            marker_color='darkred'
+                        ))
+                        fig_sharpe.update_layout(
+                            title="Sharpe Ratios: CAPM vs Actual",
+                            xaxis_title="Ticker",
+                            yaxis_title="Sharpe Ratio",
+                            barmode='group',
+                            height=400
+                        )
+                        st.plotly_chart(fig_sharpe, use_container_width=True)
+                    
+                    # Returns comparison
+                    fig_returns = go.Figure()
+                    fig_returns.add_trace(go.Bar(
+                        x=valid_capm['Ticker'],
+                        y=valid_capm['CAPM Expected Return'],
+                        name='CAPM Expected Return',
+                        marker_color='lightblue'
+                    ))
+                    fig_returns.add_trace(go.Bar(
+                        x=valid_capm['Ticker'],
+                        y=valid_capm['Actual Annual Return'],
+                        name='Actual Historical Return',
+                        marker_color='darkblue'
+                    ))
+                    fig_returns.update_layout(
+                        title="Expected vs Actual Returns",
+                        xaxis_title="Ticker",
+                        yaxis_title="Annual Return",
+                        barmode='group',
+                        height=400
+                    )
+                    st.plotly_chart(fig_returns, use_container_width=True)
                 
                 # Portfolio optimization with Monte Carlo
                 if len(stock_returns) > 1:
@@ -151,9 +229,57 @@ def _render_basic_portfolio_section():
                         st.plotly_chart(fig_port)
                         
                         # Weights for max Sharpe
-                        max_sharpe_weights = pd.DataFrame({'Ticker': tickers, 'Weight': weights_record[max_sharpe_idx]})
-                        st.subheader("Weights for Max Sharpe Portfolio")
-                        st.dataframe(max_sharpe_weights)
+                        max_sharpe_weights_array = weights_record[max_sharpe_idx]
+                        max_sharpe_weights = pd.Series(max_sharpe_weights_array, index=tickers)
+                        
+                        st.subheader("🎯 Max Sharpe Portfolio Weights")
+                        
+                        # Display table
+                        weights_df = pd.DataFrame({
+                            'Ticker': max_sharpe_weights.index,
+                            'Weight': max_sharpe_weights.values,
+                            'Weight %': max_sharpe_weights.values * 100
+                        })
+                        st.dataframe(
+                            weights_df.style.format({'Weight': '{:.4f}', 'Weight %': '{:.2f}%'}),
+                            use_container_width=True
+                        )
+                        
+                        # CSV Download with Copy-Paste Preview
+                        st.markdown("### 📥 Download Weights")
+                        
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            # Simple CSV format
+                            simple_csv = pd.DataFrame({
+                                'ticker': max_sharpe_weights.index,
+                                'weight': max_sharpe_weights.values
+                            })
+                            csv_string = simple_csv.to_csv(index=False)
+                            
+                            import datetime
+                            filename = f"max_sharpe_weights_{datetime.datetime.now().strftime('%Y%m%d')}.csv"
+                            
+                            st.download_button(
+                                label="📊 Download Weights (Simple)",
+                                data=csv_string,
+                                file_name=filename,
+                                mime="text/csv",
+                                help="Simple format: ticker,weight - Ready for copy-paste"
+                            )
+                        
+                        with col2:
+                            st.metric(
+                                "Total Positions",
+                                len(max_sharpe_weights),
+                                help="Number of assets in portfolio"
+                            )
+                        
+                        # Copy-Paste Preview
+                        with st.expander("📋 Copy-Paste Format Preview", expanded=False):
+                            st.caption("Copy this format for Portfolio Backtest page")
+                            st.code(csv_string, language="csv")
                 else:
                     st.info("Add more tickers for portfolio optimization.")
 
