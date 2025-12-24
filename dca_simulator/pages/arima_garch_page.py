@@ -1014,9 +1014,9 @@ def render_arima_garch_page():
             # Display basic statistics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Średnia zwrotów", f"{returns.mean():.4f}%")
+                st.metric("Średnia zwrotów", f"{returns.mean() * 100:.4f}%")
             with col2:
-                st.metric("Odch. std.", f"{returns.std():.4f}%")
+                st.metric("Odch. std.", f"{returns.std() * 100:.4f}%")
             with col3:
                 st.metric("Skośność", f"{returns.skew():.4f}")
             with col4:
