@@ -23,7 +23,12 @@ warnings.filterwarnings('ignore')
 
 
 def fetch_data_with_today(ticker, start_date):
-    """Fetch historical data including today's intraday data if available."""
+    """Fetch historical data including today's intraday data if available.
+    
+    Returns:
+        data: DataFrame with OHLCV data
+        returns: Pure logarithmic returns (natural log, not scaled)
+    """
     data = yf.download(
         ticker,
         start=start_date,
@@ -43,8 +48,18 @@ def fetch_data_with_today(ticker, start_date):
         if today_data.index[0].date() not in data.index.date:
             data = pd.concat([data, today_data])
     
+    # Validate data
+    if data.empty:
+        raise ValueError(f"Nie udało się pobrać danych dla {ticker}. Sprawdź symbol tickera.")
+    
+    if 'Close' not in data.columns:
+        raise ValueError(f"Brak kolumny 'Close' w danych dla {ticker}.")
+    
     data['log_returns'] = np.log(data['Close'] / data['Close'].shift(1))
-    returns = data['log_returns'].dropna() * 100
+    returns = data['log_returns'].dropna()
+    
+    if len(returns) == 0:
+        raise ValueError(f"Brak wystarczających danych do obliczenia zwrotów dla {ticker}. Spróbuj wcześniejszej daty początkowej.")
     
     return data, returns
 
@@ -81,22 +96,31 @@ def run_stationarity_tests(returns, alpha=0.05):
 
 
 def calculate_technical_indicators(data, lag=1):
-    """Calculate technical indicators: MACD, Bollinger Bands position, RSI.
+    """Calculate technical indicators with log transformation: MACD (all components), Bollinger Bands, RSI.
     
     Args:
         data: DataFrame with price data
         lag: Number of periods to lag indicators (default=1 to avoid look-ahead bias)
     
-    Note: Lagging prevents data leakage - we use indicator values from t-1 to predict t.
+    Note: 
+        - Lagging prevents data leakage - we use indicator values from t-1 to predict t.
+        - Log transformation stabilizes variance and makes distributions more symmetric
+        - Interpretation after log: changes are relative (multiplicative) rather than absolute
     """
     close = data['Close'].copy()
     
-    # MACD
+    # MACD - all components (line, signal, histogram)
     exp1 = close.ewm(span=12, adjust=False).mean()
     exp2 = close.ewm(span=26, adjust=False).mean()
-    macd = exp1 - exp2
-    signal = macd.ewm(span=9, adjust=False).mean()
-    macd_hist = macd - signal
+    macd_line = exp1 - exp2
+    macd_signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = macd_line - macd_signal
+    
+    # Log transform MACD components (shift to positive values first)
+    # Add abs() + 1 to handle negative values, then apply sign
+    macd_line_log = np.sign(macd_line) * np.log1p(np.abs(macd_line))
+    macd_signal_log = np.sign(macd_signal) * np.log1p(np.abs(macd_signal))
+    macd_hist_log = np.sign(macd_hist) * np.log1p(np.abs(macd_hist))
     
     # Bollinger Bands (20-day, 2 std)
     sma_20 = close.rolling(window=20).mean()
@@ -108,6 +132,8 @@ def calculate_technical_indicators(data, lag=1):
     bb_range = bb_upper - bb_lower
     bb_position = (close - bb_lower) / bb_range
     bb_position = (bb_position - 0.5) * 2  # Scale to -1 to +1
+    # BB position already bounded, log transform less useful but we apply log1p to compress extremes
+    bb_position_log = np.sign(bb_position) * np.log1p(np.abs(bb_position))
     
     # RSI (14-day)
     delta = close.diff()
@@ -116,14 +142,17 @@ def calculate_technical_indicators(data, lag=1):
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     
-    # Normalize RSI to -1 to +1 range
+    # Normalize RSI to -1 to +1 range, then log transform
     rsi_normalized = (rsi - 50) / 50
+    rsi_log = np.sign(rsi_normalized) * np.log1p(np.abs(rsi_normalized))
     
     # Create DataFrame with indicators and LAG them to avoid look-ahead bias
     indicators = pd.DataFrame({
-        'macd_hist_L1': macd_hist.shift(lag),
-        'bb_position_L1': bb_position.shift(lag),
-        'rsi_norm_L1': rsi_normalized.shift(lag)
+        'macd_line_log_L1': macd_line_log.shift(lag),
+        'macd_signal_log_L1': macd_signal_log.shift(lag),
+        'macd_hist_log_L1': macd_hist_log.shift(lag),
+        'bb_position_log_L1': bb_position_log.shift(lag),
+        'rsi_log_L1': rsi_log.shift(lag)
     }, index=data.index)
     
     return indicators.dropna()
@@ -159,10 +188,12 @@ def plot_acf_pacf(returns, nlags=40):
         ))
     
     fig_acf.update_layout(
-        title=f"Funkcja Autokorelacji (ACF) - n={n}",
+        title=dict(text=f"Funkcja Autokorelacji (ACF) - n={n}", font=dict(size=18)),
         xaxis_title="Opóźnienie (Lag)", yaxis_title="ACF",
         template="plotly_dark", height=400,
-        yaxis=dict(range=[-0.3, 0.3], zeroline=True)
+        yaxis=dict(range=[-0.3, 0.3], zeroline=True),
+        font=dict(size=14),
+        hoverlabel=dict(font_size=14)
     )
     
     # PACF Plot
@@ -182,10 +213,12 @@ def plot_acf_pacf(returns, nlags=40):
         ))
     
     fig_pacf.update_layout(
-        title=f"Częściowa Funkcja Autokorelacji (PACF) - n={n}",
+        title=dict(text=f"Częściowa Funkcja Autokorelacji (PACF) - n={n}", font=dict(size=18)),
         xaxis_title="Opóźnienie (Lag)", yaxis_title="PACF",
         template="plotly_dark", height=400,
-        yaxis=dict(range=[-0.3, 0.3], zeroline=True)
+        yaxis=dict(range=[-0.3, 0.3], zeroline=True),
+        font=dict(size=14),
+        hoverlabel=dict(font_size=14)
     )
     
     # Identify significant lags
@@ -246,11 +279,16 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
                           ar_lags, ma_lags, forecast_horizon, n_simulations, distribution='t', 
                           tech_indicators=None):
     """
-    Run multi-step Monte Carlo simulation with both normal and t-student distributions.
+    Run multi-step Monte Carlo simulation with normal or t-student distributions.
     
-    Note: Technical indicators are NOT used in forecasts to avoid data leakage.
-    We cannot know future values of MACD, Bollinger, RSI in real-time forecasting.
-    They are only used for in-sample model fitting.
+    Args:
+        distribution: 't' for t-Student or 'normal' for Gaussian
+        
+    Note: 
+        - Technical indicators are NOT used in forecasts to avoid data leakage.
+        - For t-distribution: standard_t(df) has variance df/(df-2), so we normalize
+          it to variance=1 by multiplying by sqrt((df-2)/df), then scale by sigma_t
+        - This ensures epsilon_t has the correct variance structure from GARCH
     """
     np.random.seed(None)
     
@@ -260,10 +298,13 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
     
     if distribution == 't':
         df_t = garch_res.params['nu']
-        std_factor = np.sqrt((df_t - 2) / df_t) if df_t > 2 else 1.0
+        # Standard t-distribution has variance df/(df-2) for df > 2
+        # We need to normalize it to variance=1, then scale by sigma_t
+        # Normalization factor: sqrt((df-2)/df)
+        norm_factor = np.sqrt((df_t - 2) / df_t) if df_t > 2 else 1.0
     else:
         df_t = None
-        std_factor = 1.0
+        norm_factor = 1.0
     
     # Technical indicators are NOT used in Monte Carlo forecasts
     # (we don't know their future values - this would be data leakage)
@@ -297,7 +338,10 @@ def monte_carlo_multistep(model_sparse_arma, garch_res, returns, residuals, X_fi
             
             # Generate shock
             if distribution == 't':
-                shock = (np.random.standard_t(df_t) / std_factor) * sigma_t
+                # Generate from standard t-distribution and normalize to variance=1
+                raw_shock = np.random.standard_t(df_t)
+                normalized_shock = raw_shock * norm_factor
+                shock = normalized_shock * sigma_t
             else:
                 shock = np.random.normal(0, sigma_t)
             
@@ -397,12 +441,14 @@ def create_fan_chart(paths_df, cumulative_paths_df, stock_name, n_simulations, d
     
     # Update layout with buttons
     fig.update_layout(
-        title=f'Prognoza Monte Carlo dla {stock_name} ({n_simulations} ścieżek, rozkład: {dist_type})',
+        title=dict(text=f'Prognoza Monte Carlo dla {stock_name} ({n_simulations} ścieżek, rozkład: {dist_type})', font=dict(size=18)),
         xaxis_title='Data',
         yaxis_title='Prognozowany zwrot logarytmiczny (dzienny)',
         yaxis_tickformat='.4f',
         template='plotly_dark',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        font=dict(size=14),
+        hoverlabel=dict(font_size=14),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12)),
         updatemenus=[
             dict(
                 type="buttons",
@@ -566,7 +612,10 @@ def plot_residuals_diagnostics(residuals, model_name="ARIMA"):
         template='plotly_dark',
         showlegend=True,
         title_text=f"Diagnostyka Reszt Modelu {model_name}",
-        title_x=0.5
+        title_x=0.5,
+        title_font_size=18,
+        font=dict(size=13),
+        hoverlabel=dict(font_size=13)
     )
     
     return fig
@@ -693,7 +742,10 @@ def plot_garch_standardized_residuals(garch_res, model_name="GARCH"):
         template='plotly_dark',
         showlegend=True,
         title_text=f"Diagnostyka Standaryzowanych Reszt Modelu {model_name}",
-        title_x=0.5
+        title_x=0.5,
+        title_font_size=18,
+        font=dict(size=13),
+        hoverlabel=dict(font_size=13)
     )
     
     # Calculate statistics
@@ -710,7 +762,7 @@ def plot_garch_standardized_residuals(garch_res, model_name="GARCH"):
 
 
 def create_histogram(data, median_val, var_95, var_99, title, xlabel):
-    """Create histogram with VaR lines."""
+    """Create histogram with VaR lines (values as pure log returns)."""
     fig = px.histogram(
         data, nbins=max(50, len(data) // 20), marginal="box",
         title=title
@@ -719,17 +771,20 @@ def create_histogram(data, median_val, var_95, var_99, title, xlabel):
     fig.add_vline(
         x=median_val, line_width=2, line_dash="dash", line_color="cyan",
         annotation_text=f"Mediana: {median_val:.4f}",
-        annotation_position="top left"
+        annotation_position="top left",
+        annotation_font_size=13
     )
     fig.add_vline(
         x=var_95, line_width=2, line_color="orange",
         annotation_text=f"VaR 95%: {var_95:.4f}",
-        annotation_position="bottom left"
+        annotation_position="bottom left",
+        annotation_font_size=13
     )
     fig.add_vline(
         x=var_99, line_width=2, line_color="red",
         annotation_text=f"VaR 99%: {var_99:.4f}",
-        annotation_position="bottom right"
+        annotation_position="bottom right",
+        annotation_font_size=13
     )
     
     fig.update_layout(
@@ -737,7 +792,10 @@ def create_histogram(data, median_val, var_95, var_99, title, xlabel):
         yaxis_title='Częstość (liczba symulacji)',
         xaxis_tickformat='.4f',
         template='plotly_dark',
-        showlegend=False
+        showlegend=False,
+        title_font_size=16,
+        font=dict(size=13),
+        hoverlabel=dict(font_size=13)
     )
     
     return fig
@@ -846,9 +904,9 @@ def render_arima_garch_page():
             help="Auto: automatyczna identyfikacja lagów na podstawie ACF/PACF. Prosty: stały model ARIMA(2,2)"
         )
         use_tech_indicators = st.checkbox(
-            "Użyj wskaźników technicznych (tylko in-sample)",
+            "Użyj wskaźników technicznych (log-transform, tylko in-sample)",
             value=False,
-            help="Dodaj opóźnione (L1) wskaźniki: MACD, Bollinger, RSI. UWAGA: Używane tylko do dopasowania modelu, NIE w prognozach Monte Carlo (unikamy data leakage)"
+            help="Dodaj opóźnione (L1) i zlogarytmowane wskaźniki: MACD (line+signal+hist), Bollinger, RSI. UWAGA: Używane tylko do dopasowania modelu, NIE w prognozach Monte Carlo (unikamy data leakage). Log transform stabilizuje wariancję."
         )
         nlags_acf = st.number_input("Liczba lagów ACF/PACF", min_value=10, max_value=60, value=40)
         garch_p = st.number_input("GARCH p", min_value=1, max_value=5, value=1)
@@ -926,8 +984,10 @@ def render_arima_garch_page():
           - ❌ W praktyce różnice są minimalne
         
         ### **Rozkłady:**
-        - **Rozkład normalny**: Zakłada symetryczne ogony
-        - **Rozkład t-Studenta**: Uwzględnia grube ogony (leptokurtoza) typowe dla danych finansowych
+        - **Rozkład normalny**: GARCH z rozkładem normalnym innowacji, zakłada symetryczne ogony
+        - **Rozkład t-Studenta**: GARCH-t z rozkładem t-Studenta innowacji (grube ogony, leptokurtoza)
+        - **Spójność**: Model GARCH jest dopasowywany z wybranym rozkładem, Monte Carlo używa tego samego
+        - **Standaryzacja**: Dla t-Studenta normalizujemy wariancję do 1 przed skalowaniem przez σ_t
         
         ### **Ostrzeżenia:**
         - Wyniki to symulacje probabilistyczne, nie gwarancje
@@ -1020,23 +1080,39 @@ def render_arima_garch_page():
             # Calculate technical indicators (opcjonalnie)
             tech_indicators = None
             if use_tech_indicators:
-                st.subheader("3️⃣ Wskaźniki Techniczne")
-                st.warning("""⚠️ **Ważne:** Wskaźniki są opóźnione o 1 dzień (lag=1) aby uniknąć data leakage.
-                Używamy wartości z t-1 do predykcji na t. W prognozach Monte Carlo wskaźniki NIE są używane,
-                bo nie znamy ich przyszłych wartości.""")
+                st.subheader("3️⃣ Wskaźniki Techniczne (Transformacja Log)")
+                st.warning("""⚠️ **Ważne:** 
+                - Wskaźniki są **opóźnione o 1 dzień** (lag=1) aby uniknąć data leakage
+                - Używamy wartości z t-1 do predykcji na t
+                - **Transformacja logarytmiczna**: sign(x) * log(1 + |x|) stabilizuje wariancję i normalizuje rozkład
+                - W prognozach Monte Carlo wskaźniki **NIE są używane** (nie znamy przyszłych wartości)
+                """)
                 with st.spinner("Obliczanie wskaźników technicznych..."):
                     tech_indicators = calculate_technical_indicators(data, lag=1)
                 
+                st.info("""💡 **Interpretacja po transformacji log:**
+                - Wartości są względne (multiplikatywne) zamiast bezwzględnych
+                - Wartości bliskie 0 = neutralne, dodatnie = bycze, ujemne = niedźwiedzie
+                - Log kompresuje ekstremalne wartości, zmniejszając wpływ outlierów
+                """)
+                
                 # Display last values of indicators (already lagged)
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
-                    st.metric("MACD Histogram (L1)", f"{tech_indicators['macd_hist_L1'].iloc[-1]:.4f}")
+                    st.metric("MACD Line (log, L1)", f"{tech_indicators['macd_line_log_L1'].iloc[-1]:.3f}",
+                             help="Linia MACD po transformacji log")
                 with col2:
-                    st.metric("Pozycja Bollingera (L1)", f"{tech_indicators['bb_position_L1'].iloc[-1]:.4f}", 
-                             help="-1 (dolny pas) do +1 (górny pas), opóźnienie 1 dzień")
+                    st.metric("MACD Signal (log, L1)", f"{tech_indicators['macd_signal_log_L1'].iloc[-1]:.3f}",
+                             help="Linia sygnału MACD po transformacji log")
                 with col3:
-                    st.metric("RSI (norm., L1)", f"{tech_indicators['rsi_norm_L1'].iloc[-1]:.4f}",
-                             help="-1 (oversold) do +1 (overbought), opóźnienie 1 dzień")
+                    st.metric("MACD Hist (log, L1)", f"{tech_indicators['macd_hist_log_L1'].iloc[-1]:.3f}",
+                             help="Histogram MACD po transformacji log")
+                with col4:
+                    st.metric("BB Pos. (log, L1)", f"{tech_indicators['bb_position_log_L1'].iloc[-1]:.3f}", 
+                             help="Pozycja Bollingera po log: -1 (dolny) do +1 (górny), lag 1 dzień")
+                with col5:
+                    st.metric("RSI (log, L1)", f"{tech_indicators['rsi_log_L1'].iloc[-1]:.3f}",
+                             help="RSI po log: -1 (oversold) do +1 (overbought), lag 1 dzień")
             
             # Build ARMA model with or without technical indicators
             step_number = "4️⃣" if use_tech_indicators else "3️⃣"
@@ -1079,7 +1155,12 @@ def render_arima_garch_page():
             # GARCH model
             step_number = "6️⃣" if use_tech_indicators else "5️⃣"
             st.subheader(f"{step_number} Model GARCH na Resztach")
-            st.info(f"💡 Model GARCH otrzymuje **reszty z ARIMA** (ε_t) i modeluje ich **warunkową wariancję** (σ²_t)")
+            st.info(f"""💡 Model GARCH otrzymuje **reszty z ARIMA** (ε_t) i modeluje ich **warunkową wariancję** (σ²_t)
+            
+            **Rozkład: {distribution_type}**
+            - Normal: GARCH(p,q) z rozkładem normalnym innowacji
+            - t-Student: GARCH(p,q)-t z rozkładem t-Studenta (lepiej modeluje grube ogony)
+            """)
             with st.spinner("Dopasowywanie modelu GARCH..."):
                 dist_param = 't' if distribution_type == "t-Student" else 'normal'
                 garch_res = fit_garch_model(residuals, p=garch_p, q=garch_q, dist=dist_param)
@@ -1156,11 +1237,16 @@ def render_arima_garch_page():
             step_number = "9️⃣" if use_tech_indicators else "8️⃣"
             st.subheader(f"{step_number} Symulacja Monte Carlo")
             st.info("💡 Monte Carlo używa **obu modeli**: prognozy średniej z ARIMA (μ_t) + prognozy zmienności z GARCH (σ_t)")
+            
+            dist_explanation = "standaryzowany rozkład t-Studenta (df={:.2f}) znormalizowany do wariancji=1".format(
+                garch_res.params.get('nu', 0)) if distribution_type == "t-Student" else "rozkład normalny N(0,1)"
+            
             st.markdown(f"""
             **Formuła symulacji:** r_t = μ_t + ε_t · σ_t, gdzie:
             - μ_t = prognoza z modelu ARMA
             - σ_t = √(prognoza wariancji z GARCH)
-            - ε_t ~ {distribution_type} = losowy szok
+            - ε_t ~ {dist_explanation}
+            - **Spójność**: GARCH dopasowany z rozkładem {distribution_type}, symulacje używają tego samego rozkładu
             """)
             st.write(f"Symulacja {n_simulations} ścieżek na {forecast_horizon} dni naprzód...")
             
@@ -1179,16 +1265,18 @@ def render_arima_garch_page():
             final_cum_returns = cumulative_paths_df.iloc[-1]
             
             # Daily returns statistics
-            st.markdown("### 📊 Statystyki dla Ostatniego Dnia Prognozy")
+            st.markdown("### 📊 Statystyki dla Ostatniego Dnia Prognozy (zwroty logarytmiczne)")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Średnia", f"{final_day_returns.mean():.4f}")
             with col2:
                 st.metric("Mediana", f"{final_day_returns.median():.4f}")
             with col3:
-                st.metric("VaR 95%", f"{final_day_returns.quantile(0.05):.4f}")
+                st.metric("VaR 95%", f"{final_day_returns.quantile(0.05):.4f}",
+                         help="5% scenariuszy jest gorsze niż ta wartość")
             with col4:
-                st.metric("VaR 99%", f"{final_day_returns.quantile(0.01):.4f}")
+                st.metric("VaR 99%", f"{final_day_returns.quantile(0.01):.4f}",
+                         help="1% scenariuszy jest gorsze niż ta wartość")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1199,16 +1287,18 @@ def render_arima_garch_page():
                 st.metric("Prawdopodobieństwo straty", f"{prob_loss:.2%}")
             
             # Cumulative returns statistics
-            st.markdown("### 📊 Statystyki dla Zwrotów Skumulowanych")
+            st.markdown("### 📊 Statystyki dla Zwrotów Skumulowanych (zwroty logarytmiczne)")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Średnia", f"{final_cum_returns.mean():.4f}")
             with col2:
                 st.metric("Mediana", f"{final_cum_returns.median():.4f}")
             with col3:
-                st.metric("VaR 95%", f"{final_cum_returns.quantile(0.05):.4f}")
+                st.metric("VaR 95%", f"{final_cum_returns.quantile(0.05):.4f}",
+                         help="5% scenariuszy ma skumulowany zwrot gorszy niż ta wartość")
             with col4:
-                st.metric("VaR 99%", f"{final_cum_returns.quantile(0.01):.4f}")
+                st.metric("VaR 99%", f"{final_cum_returns.quantile(0.01):.4f}",
+                         help="1% scenariuszy ma skumulowany zwrot gorszy niż ta wartość")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1260,6 +1350,7 @@ def render_arima_garch_page():
             st.subheader("📝 Podsumowanie")
             st.info(f"""
             **Kluczowe wnioski z analizy {ticker}:**
+            - Używamy **czystych zwrotów logarytmicznych** (log returns) zgodnie ze standardami ekonometrii
             - Model ARMA z {len(ar_lags)} lagami AR i {len(ma_lags)} lagami MA
             - GARCH({garch_p},{garch_q}) z rozkładem {distribution_type}
             - Horyzont prognozy: {forecast_horizon} dni
