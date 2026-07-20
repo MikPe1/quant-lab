@@ -465,7 +465,7 @@ def _render_extended_analysis_section():
                         # Create combined DataFrame
                         combined_data = pd.DataFrame(data)
                         combined_data = combined_data.dropna(how='all')
-                        combined_data = combined_data.fillna(method='ffill').fillna(method='bfill')
+                        combined_data = combined_data.ffill().bfill()
                         combined_data = combined_data.dropna()
                         
                         if len(combined_data) < 504:

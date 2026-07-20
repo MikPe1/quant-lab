@@ -1466,7 +1466,7 @@ elif page == "Portfolio Models":
                         combined_data = combined_data.dropna(how='all')
                         
                         # Forward fill and backward fill to handle missing values
-                        combined_data = combined_data.fillna(method='ffill').fillna(method='bfill')
+                        combined_data = combined_data.ffill().bfill()
                         
                         # Remove any remaining rows with NaN
                         combined_data = combined_data.dropna()
