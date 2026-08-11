@@ -67,28 +67,28 @@ def render_dca_page():
             index=["Daily", "Weekly", "Bi-Weekly", "Monthly"].index(config.DEFAULT_INVESTMENT_INTERVAL)
         )
 
-        st.sidebar.header("Advanced Strategy: Buy on Dip")
-        enable_buy_on_dip = st.checkbox("Enable 'Buy on Dip' Strategy", value=False)
-        
-        buy_on_dip_threshold = st.slider(
-            "Dip Threshold (%)", 
-            min_value=1, 
-            max_value=20, 
-            value=config.DEFAULT_BUY_ON_DIP_THRESHOLD, 
-            step=1, 
-            disabled=not enable_buy_on_dip
-        )
-        
-        buy_on_dip_multiplier = st.slider(
-            "Investment Multiplier on Dip", 
-            min_value=1.0, 
-            max_value=5.0, 
-            value=config.DEFAULT_BUY_ON_DIP_MULTIPLIER, 
-            step=0.5, 
-            disabled=not enable_buy_on_dip
-        )
-
         submitted = st.form_submit_button("Run Simulation")
+
+    st.sidebar.header("Advanced Strategy: Buy on Dip")
+    enable_buy_on_dip = st.sidebar.checkbox("Enable 'Buy on Dip' Strategy", value=False)
+
+    buy_on_dip_threshold = st.sidebar.slider(
+        "Dip Threshold (%)",
+        min_value=1,
+        max_value=20,
+        value=config.DEFAULT_BUY_ON_DIP_THRESHOLD,
+        step=1,
+        disabled=not enable_buy_on_dip
+    )
+
+    buy_on_dip_multiplier = st.sidebar.slider(
+        "Investment Multiplier on Dip",
+        min_value=1.0,
+        max_value=5.0,
+        value=config.DEFAULT_BUY_ON_DIP_MULTIPLIER,
+        step=0.5,
+        disabled=not enable_buy_on_dip
+    )
     
     if submitted:
         st.write(f"Running simulation for **{ticker}** from **{start_date}**")
