@@ -9,7 +9,6 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import warnings
 import yfinance as yf
 
 # Statistical models
@@ -18,9 +17,6 @@ from statsmodels.tsa.stattools import acf, pacf, adfuller, kpss
 from statsmodels.stats.diagnostic import het_arch, acorr_ljungbox
 from arch import arch_model
 from scipy import stats
-
-warnings.filterwarnings('ignore')
-
 
 def fetch_data_with_today(ticker, start_date):
     """Fetch historical data including today's intraday data if available.
@@ -928,7 +924,7 @@ def render_arima_garch_page():
         """)
         
         # Show flow diagram
-        st.plotly_chart(create_model_flow_diagram(), use_container_width=True)
+        st.plotly_chart(create_model_flow_diagram(), width='stretch')
         
         st.markdown("""
         ### **Przepływ danych krok po kroku:**
@@ -1048,9 +1044,9 @@ def render_arima_garch_page():
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.plotly_chart(fig_acf, use_container_width=True)
+                    st.plotly_chart(fig_acf, width='stretch')
                 with col2:
-                    st.plotly_chart(fig_pacf, use_container_width=True)
+                    st.plotly_chart(fig_pacf, width='stretch')
                 
                 # Model identification
                 ar_lags = [lag for lag, _ in sig_pacf]
@@ -1140,7 +1136,7 @@ def render_arima_garch_page():
             
             with st.spinner("Generowanie diagnostyki reszt ARMA..."):
                 fig_arma_diag = plot_residuals_diagnostics(residuals, model_name="ARMA")
-            st.plotly_chart(fig_arma_diag, use_container_width=True)
+            st.plotly_chart(fig_arma_diag, width='stretch')
             
             # Interpretacja ACF reszt kwadratowych
             squared_resid = residuals.dropna() ** 2
@@ -1183,7 +1179,7 @@ def render_arima_garch_page():
                 fig_garch_diag, garch_stats = plot_garch_standardized_residuals(
                     garch_res, model_name=f"GARCH({garch_p},{garch_q})"
                 )
-            st.plotly_chart(fig_garch_diag, use_container_width=True)
+            st.plotly_chart(fig_garch_diag, width='stretch')
             
             # Display standardized residuals statistics
             col1, col2, col3, col4 = st.columns(4)
@@ -1317,7 +1313,7 @@ def render_arima_garch_page():
             fig_fan = create_fan_chart(
                 paths_df, cumulative_paths_df, ticker, n_simulations, distribution_type
             )
-            st.plotly_chart(fig_fan, use_container_width=True)
+            st.plotly_chart(fig_fan, width='stretch')
             
             # Histograms
             col1, col2 = st.columns(2)
@@ -1332,7 +1328,7 @@ def render_arima_garch_page():
                     f"Rozkład zwrotów dziennych (t+{forecast_horizon})",
                     "Zwrot logarytmiczny"
                 )
-                st.plotly_chart(fig_hist_daily, use_container_width=True)
+                st.plotly_chart(fig_hist_daily, width='stretch')
             
             with col2:
                 st.markdown("**Rozkład Zwrotów Skumulowanych**")
@@ -1344,7 +1340,7 @@ def render_arima_garch_page():
                     f"Rozkład zwrotów skumulowanych (0 → t+{forecast_horizon})",
                     "Skumulowany zwrot logarytmiczny"
                 )
-                st.plotly_chart(fig_hist_cum, use_container_width=True)
+                st.plotly_chart(fig_hist_cum, width='stretch')
             
             # Summary insights
             st.subheader("📝 Podsumowanie")

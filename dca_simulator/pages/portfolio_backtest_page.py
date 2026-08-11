@@ -1,7 +1,4 @@
-"""
-Portfolio Backtest Page
-Test any portfolio with custom weights on selected time period vs benchmark.
-"""
+"""Portfolio backtest page."""
 
 import streamlit as st
 import pandas as pd
@@ -492,7 +489,7 @@ def _plot_backtest_results(portfolio_value, portfolio_cumulative, drawdown, benc
         )
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _create_backtest_download(portfolio_returns, portfolio_value, weights_dict, start_date, end_date):

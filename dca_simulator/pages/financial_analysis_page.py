@@ -1,7 +1,4 @@
-"""
-Financial Analysis Page
-Comprehensive financial analysis including returns, distributions, technical indicators, and forecasting.
-"""
+"""Financial analysis page."""
 
 import streamlit as st
 import pandas as pd
@@ -167,10 +164,10 @@ def _render_price_distribution(ticker, data):
 
     with col2:
         if price_percentile > 50:
-            st.metric("Position", "↗️ ABOVE MEDIAN")
+            st.metric("Position", "ABOVE MEDIAN")
             position_desc = "Above the middle of distribution"
         else:
-            st.metric("Position", "↘️ BELOW MEDIAN")
+            st.metric("Position", "BELOW MEDIAN")
             position_desc = "Below the middle of distribution"
 
     # Detailed percentile table

@@ -2,8 +2,9 @@
 DCA Simulator Page - Dollar Cost Averaging simulation and visualization.
 """
 
-import streamlit as st
 import datetime
+
+import streamlit as st
 import config
 from data_fetcher import fetch_historical_data
 from dca_engine import simulate_dca
@@ -125,7 +126,7 @@ def render_dca_page():
                 st.error("Simulation failed. Please check your parameters.")
             else:
                 # Display results
-                st.success("✅ Simulation complete!")
+                st.success("Simulation complete.")
                 st.subheader("Simulation Results")
                 
                 # Summary metrics
@@ -162,7 +163,7 @@ def render_dca_page():
                 st.plotly_chart(fig, width='stretch')
                 
                 # Table
-                with st.expander("📊 View Detailed Results Table"):
+                with st.expander("View detailed results table"):
                     results_table = display_results_table(simulation_results)
                     st.dataframe(results_table, width='stretch')
                     

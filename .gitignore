@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+
+.streamlit/secrets.toml
+.env
+
+.ipynb_checkpoints/
+.vscode/
+.DS_Store
+Thumbs.db
+
+run_app.bat

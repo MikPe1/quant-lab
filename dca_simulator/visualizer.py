@@ -1,7 +1,7 @@
-
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
 
 def plot_simulation_results(df: pd.DataFrame):
     """
@@ -63,7 +63,7 @@ def display_results_table(df: pd.DataFrame):
     df_display = df.copy()
 
     currency_cols = [
-        'Price', 'Shares Bought',
+        'Price',
         'Total Invested', 'Portfolio Value', 'Profit/Loss',
         'Buy&Hold Value', 'Buy&Hold Profit/Loss'
     ]

@@ -1,6 +1,6 @@
-
 import pandas as pd
 from datetime import timedelta
+
 
 def simulate_dca(
     historical_data: pd.DataFrame,
@@ -30,9 +30,8 @@ def simulate_dca(
     previous_price = None
     for index, value in historical_data.items():
         current_date = index
-        current_price = float(value)  # ✅ force scalar
+        current_price = float(value)
 
-        investment_today = 0.0
         shares_bought_today = 0.0
         dip_triggered = False
 
@@ -46,7 +45,6 @@ def simulate_dca(
             shares_bought_today = initial_capital / current_price
             total_shares += shares_bought_today
             total_invested += initial_capital
-            investment_today = initial_capital
             last_investment_date = current_date
         else:
             if last_investment_date is None or (current_date - last_investment_date) >= interval:
@@ -59,7 +57,6 @@ def simulate_dca(
                     shares_bought_today = amount_to_invest / current_price
                     total_shares += shares_bought_today
                     total_invested += amount_to_invest
-                    investment_today = amount_to_invest
                     last_investment_date = current_date
 
         previous_price = current_price

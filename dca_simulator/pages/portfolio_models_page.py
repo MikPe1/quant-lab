@@ -1,7 +1,4 @@
-"""
-Portfolio Models Page
-CAPM analysis, portfolio optimization, and comprehensive advanced portfolio analytics.
-"""
+"""Portfolio construction and model comparison page."""
 
 import streamlit as st
 import pandas as pd
@@ -125,7 +122,7 @@ def _render_basic_portfolio_section():
                     if col in display_df.columns:
                         display_df[col] = display_df[col].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "N/A")
                 
-                st.dataframe(display_df, use_container_width=True)
+                st.dataframe(display_df, width='stretch')
                 
                 # Plots
                 valid_capm = df_capm.dropna(subset=['Beta'])
@@ -135,7 +132,7 @@ def _render_basic_portfolio_section():
                     with col1:
                         fig_beta = px.bar(valid_capm, x='Ticker', y='Beta', title="Betas (Market Sensitivity)")
                         fig_beta.update_layout(height=400)
-                        st.plotly_chart(fig_beta, use_container_width=True)
+                        st.plotly_chart(fig_beta, width='stretch')
                     
                     with col2:
                         # Sharpe Ratios comparison
@@ -159,7 +156,7 @@ def _render_basic_portfolio_section():
                             barmode='group',
                             height=400
                         )
-                        st.plotly_chart(fig_sharpe, use_container_width=True)
+                        st.plotly_chart(fig_sharpe, width='stretch')
                     
                     # Returns comparison
                     fig_returns = go.Figure()
@@ -182,7 +179,7 @@ def _render_basic_portfolio_section():
                         barmode='group',
                         height=400
                     )
-                    st.plotly_chart(fig_returns, use_container_width=True)
+                    st.plotly_chart(fig_returns, width='stretch')
                 
                 # Portfolio optimization with Monte Carlo
                 if len(stock_returns) > 1:
@@ -242,7 +239,7 @@ def _render_basic_portfolio_section():
                         })
                         st.dataframe(
                             weights_df.style.format({'Weight': '{:.4f}', 'Weight %': '{:.2f}%'}),
-                            use_container_width=True
+                            width='stretch'
                         )
                         
                         # CSV Download with Copy-Paste Preview
@@ -677,7 +674,7 @@ def _render_performance_summary_all(oos_results, selected_method, benchmark_metr
     
     st.dataframe(styled_df)
     
-    st.caption(f"🟢 **Selected Method**: {selected_method} | 🟡 **Benchmark**: S&P 500 | Ranked by Composite Score (higher is better)")
+    st.caption(f"Selected method: {selected_method} | Benchmark: S&P 500 | Ranked by composite score (higher is better)")
 
 
 def _render_portfolio_weights(selected_method, selected_weights, oos_results, returns, is_production=False):
@@ -693,7 +690,7 @@ def _render_portfolio_weights(selected_method, selected_weights, oos_results, re
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.dataframe(weights_df.style.format({'Weight %': '{:.2f}%', 'Weight': '{:.4f}'}), use_container_width=True)
+        st.dataframe(weights_df.style.format({'Weight %': '{:.2f}%', 'Weight': '{:.4f}'}), width='stretch')
     
     with col2:
         # Prepare simple CSV for copy-paste (ticker,weight format)
